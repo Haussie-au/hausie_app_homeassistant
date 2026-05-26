@@ -37,6 +37,14 @@ class CloudClient:
             raise RuntimeError(f"Cloud test-assets failed {resp.status_code}: {resp.text}")
         return resp.json() if resp.content else {}
 
+    def request_rebuild_plan(self, payload: dict) -> dict:
+        url = f"{self.base_url}/api/addon/rebuild-plan"
+        body = dict(payload or {})
+        resp = requests.post(url, headers=self.headers, json=body, timeout=self.timeout_s)
+        if resp.status_code // 100 != 2:
+            raise RuntimeError(f"Cloud rebuild-plan failed {resp.status_code}: {resp.text}")
+        return resp.json() if resp.content else {}
+
     def register_device(self, payload: dict) -> dict:
         url = f"{self.base_url}/api/device/register"
         body = dict(payload or {})

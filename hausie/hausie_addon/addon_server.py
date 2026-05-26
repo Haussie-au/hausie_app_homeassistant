@@ -166,6 +166,111 @@ def _update_rebuild_state(state: dict, *, plan: str | None, version: str | None)
     save_device_state(state)
 
 
+_REBUILD_PLAN_STEPS = {"create_base", "create_hausie"}
+
+
+def _normalize_rebuild_steps(raw_steps: Any) -> list[str]:
+    if not isinstance(raw_steps, list):
+        return []
+    steps: list[str] = []
+    for raw in raw_steps:
+        step = str(raw or "").strip()
+        if step in _REBUILD_PLAN_STEPS and step not in steps:
+            steps.append(step)
+    return steps
+
+
+def _resolve_local_rebuild_steps(
+    log: Any,
+    *,
+    state: dict,
+    settings: Settings,
+    current_version: str,
+) -> tuple[list[str], str | None]:
+    last_plan = str(state.get("last_plan") or "").strip().lower()
+    last_version = str(state.get("last_addon_version") or "").strip()
+    current_plan = _resolve_subscription_plan(settings)
+    plan_changed = False
+    version_changed = False
+
+    if current_plan:
+        plan_changed = current_plan.strip().lower() != last_plan if last_plan else True
+    elif last_plan:
+        log.warn("Plan check unavailable; defaulting to create_base.")
+        plan_changed = True
+
+    if current_version:
+        version_changed = current_version != last_version if last_version else True
+    elif last_version:
+        log.warn("Add-on version unavailable; defaulting to create_base.")
+        version_changed = True
+
+    if plan_changed or version_changed:
+        log.start("Detected plan/add-on change; running create_base + create_hausie.")
+        return ["create_base", "create_hausie"], current_plan
+
+    log.start("No plan/add-on changes; running create_hausie only.")
+    return ["create_hausie"], current_plan
+
+
+def _resolve_remote_rebuild_steps(
+    log: Any,
+    *,
+    state: dict,
+    settings: Settings,
+    current_version: str,
+) -> tuple[list[str], str | None]:
+    if not settings.HAUSIE_CLOUD_URL or not settings.HAUSIE_CLOUD_TOKEN:
+        return [], None
+
+    payload = {
+        "trigger": "rebuild_hausie",
+        "current_addon_version": current_version,
+        "last_plan": state.get("last_plan"),
+        "last_addon_version": state.get("last_addon_version"),
+    }
+    if settings.HAUSIE_DEVICE_ID:
+        payload["device_id"] = settings.HAUSIE_DEVICE_ID
+
+    try:
+        cloud = CloudClient(
+            base_url=settings.HAUSIE_CLOUD_URL,
+            token=settings.HAUSIE_CLOUD_TOKEN,
+            timeout_s=settings.HAUSIE_CLOUD_TIMEOUT,
+        )
+        data = cloud.request_rebuild_plan(payload)
+    except Exception as exc:
+        log.warn(f"Remote rebuild plan unavailable; using local fallback: {exc}")
+        return [], None
+
+    if not isinstance(data, dict):
+        log.warn("Remote rebuild plan response invalid; using local fallback.")
+        return [], None
+
+    steps = _normalize_rebuild_steps(data.get("execution_plan") or data.get("steps"))
+    if not steps:
+        log.warn("Remote rebuild plan missing execution_plan; using local fallback.")
+        return [], None
+
+    reason = str(data.get("reason") or "").strip()
+    if reason:
+        log.start(f"Using cloud rebuild plan ({reason}): {', '.join(steps)}.")
+    else:
+        log.start(f"Using cloud rebuild plan: {', '.join(steps)}.")
+
+    plan = data.get("tier") or data.get("plan")
+    plan_text = str(plan).strip() if plan else ""
+    return steps, (plan_text or None)
+
+
+def _execute_rebuild_steps(steps: list[str]) -> None:
+    for step in steps:
+        if step == "create_base":
+            _run_create_base()
+        elif step == "create_hausie":
+            _run_create_hausie()
+
+
 def _resolve_mqtt_enabled() -> bool:
     return os.getenv("HAUSIE_MQTT_ENABLE", "").strip().lower() in {"1", "true", "yes"}
 
@@ -1205,32 +1310,22 @@ def _run_rebuild_hausie() -> None:
     with log.script("rebuild_hausie"):
         settings = Settings()
         state = load_device_state()
-        last_plan = str(state.get("last_plan") or "").strip().lower()
-        last_version = str(state.get("last_addon_version") or "").strip()
-        current_plan = _resolve_subscription_plan(settings)
         current_version = _resolve_addon_version()
-        plan_changed = False
-        version_changed = False
+        rebuild_steps, current_plan = _resolve_remote_rebuild_steps(
+            log,
+            state=state,
+            settings=settings,
+            current_version=current_version,
+        )
+        if not rebuild_steps:
+            rebuild_steps, current_plan = _resolve_local_rebuild_steps(
+                log,
+                state=state,
+                settings=settings,
+                current_version=current_version,
+            )
 
-        if current_plan:
-            plan_changed = current_plan.strip().lower() != last_plan if last_plan else True
-        elif last_plan:
-            log.warn("Plan check unavailable; defaulting to create_base.")
-            plan_changed = True
-
-        if current_version:
-            version_changed = current_version != last_version if last_version else True
-        elif last_version:
-            log.warn("Add-on version unavailable; defaulting to create_base.")
-            version_changed = True
-
-        if plan_changed or version_changed:
-            log.start("Detected plan/add-on change; running create_base + create_hausie.")
-            _run_create_base()
-        else:
-            log.start("No plan/add-on changes; running create_hausie only.")
-
-        _run_create_hausie()
+        _execute_rebuild_steps(rebuild_steps)
         _update_rebuild_state(state, plan=current_plan, version=current_version)
 
 
