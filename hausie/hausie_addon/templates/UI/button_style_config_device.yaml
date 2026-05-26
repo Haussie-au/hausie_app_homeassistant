@@ -1,0 +1,37 @@
+grid:
+  - grid-template-areas: '"i n" "i s"'
+  - grid-template-columns: 55px auto
+  - grid-template-rows: auto auto
+icon:
+  - width: 24px
+  - color: >
+      [[[
+        return (entity && entity.state === 'unavailable' || entity && entity.state === 'unknown')
+          ? 'var(--disabled-text-color)'
+          : 'var(--primary-text-color)';
+      ]]]
+card:
+  - height: 56px
+  - border-radius: 14px
+  - opacity: >
+      [[[
+        return (entity && entity.state === 'unavailable' || entity && entity.state === 'unknown') ? '0.55' : '1';
+      ]]]
+name:
+  - font-size: 14px
+  - justify-self: start
+  - font-weight: 400
+  - color: >
+      [[[
+        return (entity && entity.state === 'unavailable' || entity && entity.state === 'unknown')
+          ? 'var(--disabled-text-color)'
+          : 'var(--primary-text-color)';
+      ]]]
+state:
+  - font-size: 12px
+  - justify-self: start
+  - color: var(--disabled-text-color)
+  - display: >
+      [[[
+        return (entity && entity.state === 'unavailable' || entity && entity.state === 'unknown') ? 'block' : 'none';
+      ]]]

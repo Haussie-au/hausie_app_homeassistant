@@ -1,0 +1,10 @@
+alias: "{{ automation_alias }}"
+mode: single
+trigger:
+  - platform: state
+    entity_id: "{{ trigger_entity }}"
+action:
+  - service: rest_command.cleanup_base
+  - service: rest_command.cleanup_hausie
+  - service: rest_command.create_base
+  - service: rest_command.create_hausie

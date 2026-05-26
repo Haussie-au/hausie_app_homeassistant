@@ -1,0 +1,7 @@
+- platform: group
+  name: "{{ group_name }}"
+  unique_id: "{{ unique_id }}"
+  entities:
+{% for entity in entities %}
+    - {{ entity }}
+{% endfor %}

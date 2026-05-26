@@ -1,0 +1,7 @@
+alias: "{{ automation_alias }}"
+mode: single
+trigger:
+  - platform: state
+    entity_id: "{{ trigger_entity }}"
+action:
+  - service: rest_command.{{ rest_command_id }}

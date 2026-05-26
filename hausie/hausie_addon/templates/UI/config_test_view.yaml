@@ -1,0 +1,132 @@
+type: sections
+max_columns: 6
+title: Test
+path: test
+sections:
+  - type: grid
+    columns: 2
+    square: false
+    cards:
+      - type: heading
+        heading: Test Actions
+        heading_style: subtitle
+        grid_options:
+          columns: 12
+          rows: auto
+      - show_name: true
+        show_icon: true
+        type: button
+        entity: input_button.cleanup_base_assets
+        grid_options:
+          columns: 12
+          rows: 2
+        name: Test - Clean Base
+        icon: mdi:eraser
+        tap_action:
+          action: call-service
+          service: input_button.press
+          data:
+            entity_id: input_button.cleanup_base_assets
+      - show_name: true
+        show_icon: true
+        type: button
+        entity: input_button.cleanup_hausie_assets
+        grid_options:
+          columns: 12
+          rows: 2
+        name: Test - Clean Hausie
+        icon: mdi:trash-can-outline
+        tap_action:
+          action: call-service
+          service: input_button.press
+          data:
+            entity_id: input_button.cleanup_hausie_assets
+      - show_name: true
+        show_icon: true
+        type: button
+        entity: input_button.test_create_base
+        grid_options:
+          columns: 12
+          rows: 2
+        name: Test - Create Base
+        icon: mdi:play-circle-outline
+        tap_action:
+          action: call-service
+          service: input_button.press
+          data:
+            entity_id: input_button.test_create_base
+      - show_name: true
+        show_icon: true
+        type: button
+        entity: input_button.test_create_hausie
+        grid_options:
+          columns: 12
+          rows: 2
+        name: Test - Create Hausie
+        icon: mdi:play-circle-outline
+        tap_action:
+          action: call-service
+          service: input_button.press
+          data:
+            entity_id: input_button.test_create_hausie
+      - show_name: true
+        show_icon: true
+        type: button
+        entity: input_button.test_rebuild_all
+        grid_options:
+          columns: 12
+          rows: 2
+        name: Test - Rebuild All
+        icon: mdi:refresh
+      - show_name: true
+        show_icon: true
+        type: button
+        entity: input_button.test_popup_update
+        grid_options:
+          columns: 12
+          rows: 2
+        name: TEST_POPUP - Update
+        icon: mdi:progress-clock
+        tap_action:
+          action: fire-dom-event
+          browser_mod:
+            service: browser_mod.sequence
+            data:
+              sequence:
+                - service: browser_mod.popup
+                  data:
+                    browser_id: all
+                    dismissable: false
+                    title: TEST_POPUP
+                    content:
+                      type: markdown
+                      content: "Loading..."
+                      text_only: true
+                - service: rest_command.test_popup_wait
+                - service: browser_mod.close_popup
+                  data:
+                    browser_id: all
+                - service: browser_mod.popup
+                  data:
+                    browser_id: all
+                    dismissable: false
+                    title: TEST_POPUP
+                    content:
+                      type: markdown
+                      content: "TU Hasuie esta actualizada"
+                      text_only: true
+        hold_action:
+          action: none
+        double_tap_action:
+          action: none
+        tap_action:
+          action: call-service
+          service: input_button.press
+          data:
+            entity_id: input_button.test_rebuild_all
+header:
+  layout: start
+  card:
+    type: markdown
+    text_only: true
+    content: "## Test"

@@ -1,0 +1,32 @@
+{{ script_id }}:
+  alias: "{{ script_name }}"
+  mode: restart
+  fields:
+    plan_name:
+      description: "Plan name shown in the upgrade message."
+      example: "Pro"
+    feature_name:
+      description: "Feature unlocked by upgrading."
+      example: "Advanced automations"
+    cta_url:
+      description: "Upgrade URL shown in the popup."
+      example: "https://hausie.app/upgrade"
+  sequence:
+    - service: browser_mod.popup
+      data:
+        title: Upgrade
+        dismissable: true
+        content:
+          type: markdown
+          content: |-
+            <br><br>
+            ## Upgrade your plan to {{ plan_name | default('') }} to be able to use {{ feature_name | default('') }}
+
+            Do it in just one click in ({{ cta_url | default('') }})
+
+            <br><br>
+          text_only: true
+        left_button: back
+        left_button_action:
+          action: call-service
+          service: browser_mod.close_popup

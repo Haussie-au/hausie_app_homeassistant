@@ -1,0 +1,40 @@
+plan_order:
+  - plan 1
+  - plan 2
+  - plan 3
+  - plan 4
+plans:
+  plan 1:
+    name: Plan 1
+    includes:
+      - Devices connected to Home Assistant
+      - Basic dashboards
+    excludes:
+      - Remote support
+      - Custom dashboards
+      - Automations
+      - New device flow
+  plan 2:
+    name: Plan 2
+    includes:
+      - Custom dashboards
+      - Support
+      - Battery and devices view
+    excludes:
+      - Automations
+      - New device flow
+      - Priority support
+  plan 3:
+    name: Plan 3
+    includes:
+      - Automations
+      - Support
+      - New device flow
+    excludes:
+      - Priority support
+  plan 4:
+    name: Plan 4
+    includes:
+      - Automations
+      - Priority support
+    excludes: []

@@ -1,0 +1,28 @@
+alias: "{{ automation_alias }}"
+mode: single
+trigger:
+  - platform: state
+    entity_id: "{{ trigger_entity }}"
+action:
+  - service: browser_mod.popup
+    data:
+      browser_id: all
+      dismissable: false
+      title: "{{ loading_title }}"
+      content:
+        type: markdown
+        content: "{{ loading_message }}"
+        text_only: true
+  - service: rest_command.{{ rest_command_id }}
+  - service: browser_mod.close_popup
+    data:
+      browser_id: all
+  - service: browser_mod.popup
+    data:
+      browser_id: all
+      dismissable: false
+      title: "{{ success_title }}"
+      content:
+        type: markdown
+        content: "{{ success_message }}"
+        text_only: true
