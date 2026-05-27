@@ -19,9 +19,6 @@ class Settings:
         """Load Home Assistant settings from the environment."""
         default_ws = "ws://homeassistant:8123/api/websocket"
         default_rest = "http://homeassistant:8123/api"
-        if os.getenv("SUPERVISOR_TOKEN"):
-            default_ws = "ws://supervisor/core/websocket"
-            default_rest = "http://supervisor/core/api"
         self.HA_WS_URL = os.getenv("HA_WS_URL", default_ws)
         self.HA_REST_URL = os.getenv("HA_REST_URL", default_rest)
         self.HA_TOKEN = os.getenv("HA_TOKEN") or _read_secret_file(os.getenv("HA_TOKEN_FILE"))
