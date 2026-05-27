@@ -16,12 +16,18 @@ Set these values in the add-on configuration UI:
 
 ```yaml
 ha_token: ""
+ha_ui_username: ""
+ha_ui_password: ""
 hausie_cloud_url: ""
 pairing_code: ""
 tailscale_ip: ""
 ```
 
 Optional logging and support settings are also exposed in the add-on schema.
+
+If you want Hausie to recreate the main Hausie dashboard through Playwright,
+configure a dedicated Home Assistant UI user in `ha_ui_username` and
+`ha_ui_password`.
 
 ## Storage model
 

@@ -14,6 +14,8 @@ import shlex
 
 mapping = {
     "ha_token": "HA_TOKEN",
+    "ha_ui_username": "HA_UI_USERNAME",
+    "ha_ui_password": "HA_UI_PASSWORD",
     "hausie_cloud_url": "HAUSIE_CLOUD_URL",
     "pairing_code": "HAUSIE_PAIRING_CODE",
     "tailscale_ip": "HAUSIE_TAILSCALE_IP",
