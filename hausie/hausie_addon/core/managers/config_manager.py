@@ -214,140 +214,111 @@ class ConfigManager:
             for legacy in ("hausie_new_device", "hausie_new_device_save"):
                 existing.pop(legacy, None)
             url = f"{addon_url.rstrip('/')}/new_device"
-            existing.setdefault(
-                "new_device_create",
-                {
-                    "url": url,
-                    "method": "POST",
-                    "content_type": "application/json",
-                    "payload": '{"device_id": "{{ device_id }}"}',
-                },
-            )
+            existing["new_device_create"] = {
+                "url": url,
+                "method": "POST",
+                "content_type": "application/json",
+                "payload": '{"device_id": "{{ device_id }}"}',
+                "timeout": 180,
+            }
             save_url = f"{addon_url.rstrip('/')}/new_device_save"
-            existing.setdefault(
-                "new_device_save",
-                {
-                    "url": save_url,
-                    "method": "POST",
-                    "content_type": "application/json",
-                    "payload": "{}",
-                },
-            )
+            existing["new_device_save"] = {
+                "url": save_url,
+                "method": "POST",
+                "content_type": "application/json",
+                "payload": "{}",
+                "timeout": 180,
+            }
             scan_url = f"{addon_url.rstrip('/')}/new_devices_scan"
-            existing.setdefault(
-                "new_devices_scan",
-                {
-                    "url": scan_url,
-                    "method": "POST",
-                    "content_type": "application/json",
-                    "payload": "{}",
-                },
-            )
+            existing["new_devices_scan"] = {
+                "url": scan_url,
+                "method": "POST",
+                "content_type": "application/json",
+                "payload": "{}",
+                "timeout": 180,
+            }
             notify_admins_url = f"{addon_url.rstrip('/')}/notify_admins"
-            existing.setdefault(
-                "notify_admins",
-                {
-                    "url": notify_admins_url,
-                    "method": "POST",
-                    "content_type": "application/json",
-                    "payload": '{"title":"{{ title }}","message":"{{ message }}"}',
-                },
-            )
+            existing["notify_admins"] = {
+                "url": notify_admins_url,
+                "method": "POST",
+                "content_type": "application/json",
+                "payload": '{"title":"{{ title }}","message":"{{ message }}"}',
+                "timeout": 180,
+            }
             rotate_url = f"{addon_url.rstrip('/')}/help_messages/rotate"
-            existing.setdefault(
-                "ui_help_rotate",
-                {
-                    "url": rotate_url,
-                    "method": "POST",
-                    "content_type": "application/json",
-                    "payload": "{}",
-                },
-            )
+            existing["ui_help_rotate"] = {
+                "url": rotate_url,
+                "method": "POST",
+                "content_type": "application/json",
+                "payload": "{}",
+                "timeout": 180,
+            }
             cleanup_base_url = f"{addon_url.rstrip('/')}/cleanup/base"
-            existing.setdefault(
-                "cleanup_base",
-                {
-                    "url": cleanup_base_url,
-                    "method": "POST",
-                    "content_type": "application/json",
-                    "payload": "{}",
-                    "timeout": 180,
-                },
-            )
+            existing["cleanup_base"] = {
+                "url": cleanup_base_url,
+                "method": "POST",
+                "content_type": "application/json",
+                "payload": "{}",
+                "timeout": 180,
+            }
             cleanup_hausie_url = f"{addon_url.rstrip('/')}/cleanup/hausie"
-            existing.setdefault(
-                "cleanup_hausie",
-                {
-                    "url": cleanup_hausie_url,
-                    "method": "POST",
-                    "content_type": "application/json",
-                    "payload": "{}",
-                    "timeout": 180,
-                },
-            )
+            existing["cleanup_hausie"] = {
+                "url": cleanup_hausie_url,
+                "method": "POST",
+                "content_type": "application/json",
+                "payload": "{}",
+                "timeout": 180,
+            }
             create_base_url = f"{addon_url.rstrip('/')}/run/create_base"
-            existing.setdefault(
-                "create_base",
-                {
-                    "url": create_base_url,
-                    "method": "POST",
-                    "content_type": "application/json",
-                    "payload": "{}",
-                },
-            )
+            existing["create_base"] = {
+                "url": create_base_url,
+                "method": "POST",
+                "content_type": "application/json",
+                "payload": "{}",
+                "timeout": 180,
+            }
             create_hausie_url = f"{addon_url.rstrip('/')}/run/create_hausie"
-            existing.setdefault(
-                "create_hausie",
-                {
-                    "url": create_hausie_url,
-                    "method": "POST",
-                    "content_type": "application/json",
-                    "payload": "{}",
-                },
-            )
+            existing["create_hausie"] = {
+                "url": create_hausie_url,
+                "method": "POST",
+                "content_type": "application/json",
+                "payload": "{}",
+                "timeout": 180,
+            }
             rebuild_hausie_url = f"{addon_url.rstrip('/')}/run/rebuild_hausie"
-            existing.setdefault(
-                "rebuild_hausie",
-                {
-                    "url": rebuild_hausie_url,
-                    "method": "POST",
-                    "content_type": "application/json",
-                    "payload": "{}",
-                },
-            )
+            existing["rebuild_hausie"] = {
+                "url": rebuild_hausie_url,
+                "method": "POST",
+                "content_type": "application/json",
+                "payload": "{}",
+                "timeout": 300,
+            }
             restart_hausie_url = f"{addon_url.rstrip('/')}/run/restart_hausie"
-            existing.setdefault(
-                "restart_hausie",
-                {
-                    "url": restart_hausie_url,
-                    "method": "POST",
-                    "content_type": "application/json",
-                    "payload": "{}",
-                },
-            )
+            existing["restart_hausie"] = {
+                "url": restart_hausie_url,
+                "method": "POST",
+                "content_type": "application/json",
+                "payload": "{}",
+                "timeout": 300,
+            }
             create_test_url = f"{addon_url.rstrip('/')}/run/create_test"
-            existing.setdefault(
-                "create_test",
-                {
-                    "url": create_test_url,
-                    "method": "POST",
-                    "content_type": "application/json",
-                    "payload": "{}",
-                },
-            )
+            existing["create_test"] = {
+                "url": create_test_url,
+                "method": "POST",
+                "content_type": "application/json",
+                "payload": "{}",
+                "timeout": 300,
+            }
         cloud_url = os.getenv("HAUSIE_CLOUD_URL", "").strip()
         if cloud_url:
             test_popup_url = f"{cloud_url.rstrip('/')}/api/TEST_POPUP/wait"
-            existing.setdefault(
-                "test_popup_wait",
-                {
-                    "url": test_popup_url,
-                    "method": "POST",
-                    "content_type": "application/json",
-                    "payload": "{}",
-                    "timeout": 180,
-                },
-            )
+            existing["test_popup_wait"] = {
+                "url": test_popup_url,
+                "method": "POST",
+                "content_type": "application/json",
+                "payload": "{}",
+                "timeout": 180,
+            }
         if existing:
             doc["rest_command"] = existing
         else:
