@@ -33,7 +33,7 @@ Settings -> Add-ons -> Add-on Store -> Repositories
 Then install:
 
 ```text
-Hausie Add-on
+Hausie App
 ```
 
 ## Release Flow

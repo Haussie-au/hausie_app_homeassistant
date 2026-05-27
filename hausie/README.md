@@ -1,4 +1,4 @@
-# Hausie Add-on
+# Hausie App
 
 Hausie connects a Home Assistant OS installation with Hausie Cloud and manages
 the generated Hausie dashboards, helpers, scripts, groups, covers, and support flows.
@@ -31,5 +31,5 @@ Optional logging and support settings are also exposed in the add-on schema.
 
 ## Support
 
-Production users should install Hausie from this repository through the Home Assistant Add-on Store.
+Production users should install Hausie App from this repository through the Home Assistant Add-on Store.
 Local SSH deploy workflows are intentionally kept out of this repository.
