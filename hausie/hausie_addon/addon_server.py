@@ -551,12 +551,14 @@ def _start_heartbeat() -> None:
             return
         endpoint = f"{base}/api/device/heartbeat"
     interval_s = _resolve_heartbeat_interval()
+    support_interval_s = _resolve_support_heartbeat_interval()
     _HEARTBEAT = HeartbeatReporter(
         ha_client=ha,
         endpoint_url=endpoint,
         device_id=device_id,
         token=token,
         interval_s=interval_s,
+        support_interval_s=support_interval_s,
         state_path=os.getenv("HAUSIE_SUPPORT_STATE_PATH", "/data/hausie_support_state.json"),
         on_actions=_handle_heartbeat_actions,
     )
@@ -591,6 +593,13 @@ def _resolve_ha_client() -> HAClient | None:
 
 
 def _resolve_heartbeat_interval() -> int:
+    try:
+        state = load_device_state()
+        override = state.get("heartbeat_interval_override_s")
+        if isinstance(override, (int, float)) and int(override) >= 60:
+            return int(override)
+    except Exception:
+        pass
     config_path = ROOT_DIR / "config" / "heartbeat_settings.yaml"
     if config_path.exists():
         try:
@@ -603,6 +612,23 @@ def _resolve_heartbeat_interval() -> int:
         except Exception:
             pass
     return 900
+
+
+def _resolve_support_heartbeat_interval() -> int | None:
+    try:
+        state = load_device_state()
+        override = state.get("support_heartbeat_interval_override_s")
+        if isinstance(override, (int, float)) and 5 <= int(override) <= 300:
+            return int(override)
+    except Exception:
+        pass
+    raw = os.getenv("HAUSIE_SUPPORT_HEARTBEAT_INTERVAL", "").strip()
+    if not raw:
+        return None
+    try:
+        return max(5, min(300, int(raw)))
+    except Exception:
+        return None
 
 
 def _create_ha_support_user(action: dict[str, Any]) -> None:
@@ -653,6 +679,8 @@ _HEARTBEAT_ALLOWED_ACTIONS = {
     "refresh_plan",
     "reset_pairing",
     "restart_hausie",
+    "sync_help_messages",
+    "update_heartbeat_interval",
     "update_plan",
 }
 
@@ -754,6 +782,21 @@ def _handle_heartbeat_actions(actions: list[Any], payload: dict[str, Any] | None
                 _run_create_base()
                 _run_create_hausie()
             return
+        if "sync_help_messages" in lower_actions:
+            with log.script("sync_help_messages"):
+                _sync_help_messages_from_cloud(log)
+            normalized = [action for action in normalized if str(action.get("type") or "").strip().lower() != "sync_help_messages"]
+            if not normalized:
+                return
+        if "update_heartbeat_interval" in lower_actions:
+            with log.script("update_heartbeat_interval"):
+                for action in normalized:
+                    if str(action.get("type") or "").strip().lower() == "update_heartbeat_interval":
+                        payload_data = action.get("payload") if isinstance(action.get("payload"), dict) else {}
+                        _apply_heartbeat_interval_override(payload_data, log)
+            normalized = [action for action in normalized if str(action.get("type") or "").strip().lower() != "update_heartbeat_interval"]
+            if not normalized:
+                return
         for action in normalized:
             action_type = str(action.get("type") or "").strip().lower()
             action_payload = action.get("payload") if isinstance(action.get("payload"), dict) else {}
@@ -1385,6 +1428,8 @@ def _run_rebuild_hausie() -> None:
     log = get_logger("addon")
     with log.script("rebuild_hausie"):
         settings = Settings()
+        ha = HAClient(ha_url_ws=settings.HA_WS_URL, ha_url_rest=settings.HA_REST_URL, token=settings.HA_TOKEN)
+        helper_snapshot = _snapshot_rebuild_helper_values(ha, _ha_config_root(), log)
         state = load_device_state()
         last_plan = str(state.get("last_plan") or "").strip().lower()
         last_version = str(state.get("last_addon_version") or "").strip()
@@ -1408,6 +1453,7 @@ def _run_rebuild_hausie() -> None:
         reason = str(plan.get("reason") or "unknown")
         log.start(f"Using {source} rebuild plan ({reason}): {', '.join(steps)}.")
         _execute_rebuild_steps(steps, log)
+        _restore_rebuild_helper_values(ha, helper_snapshot, log)
         final_plan = str(plan.get("plan") or current_plan or "").strip() or None
         _update_rebuild_state(state, plan=final_plan, version=current_version)
 
@@ -1692,6 +1738,67 @@ def _apply_help_messages(ha: HAClient, messages: dict[str, str]) -> None:
         ha.call_service("input_text", "set_value", {"entity_id": entity_id, "value": text})
 
 
+def _sync_help_messages_from_cloud(log) -> None:
+    settings = Settings()
+    if not settings.HAUSIE_CLOUD_URL or not settings.HAUSIE_CLOUD_TOKEN:
+        log.warn("Help messages sync skipped: cloud credentials missing.")
+        return
+    ha = _resolve_ha_client()
+    if not ha:
+        log.warn("Help messages sync skipped: HA client unavailable.")
+        return
+    cloud = CloudClient(
+        base_url=settings.HAUSIE_CLOUD_URL,
+        token=settings.HAUSIE_CLOUD_TOKEN,
+        timeout_s=settings.HAUSIE_CLOUD_TIMEOUT,
+    )
+    payload = cloud.request_help_messages()
+    views = payload.get("views") if isinstance(payload, dict) else None
+    if not isinstance(views, dict):
+        log.warn("Help messages sync skipped: invalid cloud payload.")
+        return
+    manager = HelpMessageManager(path=_resolve_help_messages_path())
+    manager.update_views(views, replace=True)
+    updated = manager.rotate(list(views.keys()) if views else None)
+    _apply_help_messages(ha, updated)
+    log.ok(
+        f"Help messages synced from cloud (version {payload.get('version') or 1}, views {len(views)})."
+    )
+
+
+def _apply_heartbeat_interval_override(action_payload: dict[str, Any], log) -> None:
+    state = load_device_state()
+    changed = False
+    interval = action_payload.get("interval_seconds")
+    support_interval = action_payload.get("support_interval_seconds")
+    if interval is not None:
+        try:
+            interval_value = max(60, min(900, int(interval)))
+            state["heartbeat_interval_override_s"] = interval_value
+            changed = True
+        except Exception:
+            log.warn(f"Invalid heartbeat interval override: {interval}")
+    if support_interval is not None:
+        try:
+            support_value = max(5, min(300, int(support_interval)))
+            state["support_heartbeat_interval_override_s"] = support_value
+            changed = True
+        except Exception:
+            log.warn(f"Invalid support heartbeat interval override: {support_interval}")
+    if changed:
+        save_device_state(state)
+        if _HEARTBEAT:
+            _HEARTBEAT.update_intervals(
+                interval_s=state.get("heartbeat_interval_override_s"),
+                support_interval_s=state.get("support_heartbeat_interval_override_s"),
+            )
+        log.ok(
+            "Heartbeat intervals updated "
+            f"(normal={state.get('heartbeat_interval_override_s')}, "
+            f"support={state.get('support_heartbeat_interval_override_s')})."
+        )
+
+
 def _apply_plan_badge(ha: HAClient, plan_badge: dict | None) -> None:
     if not plan_badge or not isinstance(plan_badge, dict):
         return
@@ -1795,6 +1902,140 @@ def _turn_on_user_helpers(ha: HAClient) -> int:
         return len(user_entities)
     except Exception:
         return 0
+
+
+_REBUILD_PERSIST_HELPER_DOMAINS = (
+    "input_boolean",
+    "input_number",
+    "input_select",
+    "input_text",
+    "input_datetime",
+)
+
+_REBUILD_PERSIST_EXACT = {
+    "input_boolean.new_device_found",
+    "input_text.hausie_plan_text",
+    "input_text.hausie_plan_details",
+    "input_text.hausie_trial_until",
+    "input_text.new_device_name",
+    "input_text.new_device_device_id",
+    "input_select.new_device_label",
+    "input_select.new_device_area",
+}
+
+
+def _should_persist_rebuild_helper(domain: str, object_id: str) -> bool:
+    entity_id = f"{domain}.{object_id}"
+    if domain not in _REBUILD_PERSIST_HELPER_DOMAINS:
+        return False
+    if entity_id in _REBUILD_PERSIST_EXACT:
+        return False
+    return True
+
+
+def _collect_persistable_helper_entities(root: Path) -> list[tuple[str, str]]:
+    helpers_root = root / "helpers"
+    collected: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for domain in _REBUILD_PERSIST_HELPER_DOMAINS:
+        domain_root = helpers_root / domain
+        if not domain_root.exists():
+            continue
+        for helper_path in sorted(domain_root.glob("hausie_*.yaml")):
+            try:
+                doc = yaml.safe_load(helper_path.read_text(encoding="utf-8")) or {}
+            except Exception:
+                continue
+            if not isinstance(doc, dict):
+                continue
+            for object_id in doc.keys():
+                if not isinstance(object_id, str):
+                    continue
+                if not _should_persist_rebuild_helper(domain, object_id):
+                    continue
+                entity_id = f"{domain}.{object_id}"
+                if entity_id in seen:
+                    continue
+                seen.add(entity_id)
+                collected.append((domain, entity_id))
+    return collected
+
+
+def _snapshot_rebuild_helper_values(ha: HAClient, root: Path, log) -> dict[str, dict[str, Any]]:
+    helper_entities = _collect_persistable_helper_entities(root)
+    if not helper_entities:
+        log.info("No persistable helpers found for rebuild snapshot.")
+        return {}
+    try:
+        states = ha.get_states()
+    except Exception as exc:
+        log.warn(f"Helper snapshot skipped: {exc}")
+        return {}
+    states_by_entity = {
+        state.get("entity_id"): state
+        for state in states
+        if isinstance(state, dict) and isinstance(state.get("entity_id"), str)
+    }
+    snapshot: dict[str, dict[str, Any]] = {}
+    for domain, entity_id in helper_entities:
+        state = states_by_entity.get(entity_id)
+        if not isinstance(state, dict):
+            continue
+        value = state.get("state")
+        if value in {None, "unknown", "unavailable"}:
+            continue
+        snapshot[entity_id] = {
+            "domain": domain,
+            "state": value,
+            "attributes": state.get("attributes") if isinstance(state.get("attributes"), dict) else {},
+        }
+    log.info(f"Captured {len(snapshot)} helper values for rebuild restore.")
+    return snapshot
+
+
+def _restore_rebuild_helper_values(ha: HAClient, snapshot: dict[str, dict[str, Any]], log) -> int:
+    restored = 0
+    for entity_id, item in snapshot.items():
+        if not isinstance(item, dict):
+            continue
+        domain = str(item.get("domain") or "").strip()
+        state = item.get("state")
+        attributes = item.get("attributes") if isinstance(item.get("attributes"), dict) else {}
+        if not domain or state in {None, "unknown", "unavailable"}:
+            continue
+        try:
+            if domain == "input_boolean":
+                service = "turn_on" if str(state).lower() == "on" else "turn_off"
+                ha.call_service("input_boolean", service, {"entity_id": entity_id})
+            elif domain == "input_number":
+                ha.call_service("input_number", "set_value", {"entity_id": entity_id, "value": float(state)})
+            elif domain == "input_select":
+                ha.call_service("input_select", "select_option", {"entity_id": entity_id, "option": str(state)})
+            elif domain == "input_text":
+                ha.call_service("input_text", "set_value", {"entity_id": entity_id, "value": str(state)})
+            elif domain == "input_datetime":
+                has_date = bool(attributes.get("has_date"))
+                has_time = bool(attributes.get("has_time"))
+                payload: dict[str, Any] = {"entity_id": entity_id}
+                if has_date and has_time:
+                    payload["datetime"] = str(state)
+                elif has_date:
+                    payload["date"] = str(state)
+                elif has_time:
+                    payload["time"] = str(state)
+                else:
+                    continue
+                ha.call_service("input_datetime", "set_datetime", payload)
+            else:
+                continue
+            restored += 1
+        except Exception as exc:
+            log.warn(f"Failed to restore {entity_id}: {exc}")
+    if restored:
+        log.ok(f"Restored {restored} helper values after rebuild.")
+    else:
+        log.info("No helper values restored after rebuild.")
+    return restored
 
 
 class _AddonHandler(BaseHTTPRequestHandler):

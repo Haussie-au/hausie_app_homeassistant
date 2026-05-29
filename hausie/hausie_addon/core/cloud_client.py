@@ -72,6 +72,13 @@ class CloudClient:
             raise RuntimeError(f"Cloud subscription-status failed {resp.status_code}: {resp.text}")
         return resp.json() if resp.content else {}
 
+    def request_help_messages(self) -> dict:
+        url = f"{self.base_url}/api/device/help-messages"
+        resp = requests.get(url, headers=self.headers, timeout=self.timeout_s)
+        if resp.status_code // 100 != 2:
+            raise RuntimeError(f"Cloud help-messages failed {resp.status_code}: {resp.text}")
+        return resp.json() if resp.content else {}
+
     def has_valid_device_credentials(self) -> bool:
         url = f"{self.base_url}/api/device/subscription-status"
         resp = requests.get(url, headers=self.headers, timeout=self.timeout_s)

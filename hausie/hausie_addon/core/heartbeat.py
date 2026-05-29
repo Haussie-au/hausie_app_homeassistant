@@ -101,6 +101,7 @@ class HeartbeatReporter:
         self._on_actions = on_actions
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
+        self._interval_lock = threading.Lock()
 
     def _read_support_state(self) -> dict[str, Any]:
         if not self._state_path.exists():
@@ -132,9 +133,12 @@ class HeartbeatReporter:
 
     def _next_interval(self) -> int:
         support = self._read_support_state()
+        with self._interval_lock:
+            support_interval_s = self._support_interval_s
+            interval_s = self._interval_s
         if bool(support.get("support_active", False)):
-            return self._support_interval_s
-        return self._interval_s
+            return support_interval_s
+        return interval_s
 
     def _send_once(self) -> None:
         payload = self._build_payload()
@@ -161,6 +165,18 @@ class HeartbeatReporter:
 
     def send_now(self) -> None:
         self._send_once()
+
+    def update_intervals(
+        self,
+        *,
+        interval_s: int | None = None,
+        support_interval_s: int | None = None,
+    ) -> None:
+        with self._interval_lock:
+            if interval_s is not None:
+                self._interval_s = max(30, int(interval_s))
+            if support_interval_s is not None:
+                self._support_interval_s = max(5, int(support_interval_s))
 
     def start(self) -> None:
         if self._thread and self._thread.is_alive():
