@@ -2,11 +2,18 @@ import requests
 
 
 class CloudClient:
-    def __init__(self, base_url: str, token: str | None = None, timeout_s: int = 20) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        token: str | None = None,
+        timeout_s: int = 20,
+        create_hausie_timeout_s: int | None = None,
+    ) -> None:
         if not base_url:
             raise ValueError("base_url is required")
         self.base_url = base_url.rstrip("/")
         self.timeout_s = timeout_s
+        self.create_hausie_timeout_s = create_hausie_timeout_s or timeout_s
         self.headers = {"Content-Type": "application/json"}
         if token:
             self.headers["Authorization"] = f"Bearer {token}"
@@ -23,7 +30,12 @@ class CloudClient:
     def request_create_hausie(self, payload: dict) -> dict:
         url = f"{self.base_url}/api/addon/create-hausie"
         body = dict(payload or {})
-        resp = requests.post(url, headers=self.headers, json=body, timeout=self.timeout_s)
+        resp = requests.post(
+            url,
+            headers=self.headers,
+            json=body,
+            timeout=self.create_hausie_timeout_s,
+        )
         if resp.status_code // 100 != 2:
             raise RuntimeError(f"Cloud create-hausie failed {resp.status_code}: {resp.text}")
         return resp.json() if resp.content else {}

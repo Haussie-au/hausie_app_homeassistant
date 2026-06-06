@@ -149,6 +149,7 @@ def _resolve_subscription_plan(settings: Settings) -> str | None:
             base_url=settings.HAUSIE_CLOUD_URL,
             token=settings.HAUSIE_CLOUD_TOKEN,
             timeout_s=settings.HAUSIE_CLOUD_TIMEOUT,
+            create_hausie_timeout_s=settings.HAUSIE_CLOUD_CREATE_HAUSIE_TIMEOUT,
         )
         data = cloud.request_subscription_status()
     except Exception as exc:
@@ -237,6 +238,7 @@ def _resolve_remote_rebuild_plan(
             base_url=settings.HAUSIE_CLOUD_URL,
             token=settings.HAUSIE_CLOUD_TOKEN,
             timeout_s=settings.HAUSIE_CLOUD_TIMEOUT,
+            create_hausie_timeout_s=settings.HAUSIE_CLOUD_CREATE_HAUSIE_TIMEOUT,
         )
         stored_device_id = ""
         try:
@@ -1534,6 +1536,7 @@ def _run_create_hausie(*, force_full: bool = False) -> None:
             base_url=settings.HAUSIE_CLOUD_URL,
             token=settings.HAUSIE_CLOUD_TOKEN,
             timeout_s=settings.HAUSIE_CLOUD_TIMEOUT,
+            create_hausie_timeout_s=settings.HAUSIE_CLOUD_CREATE_HAUSIE_TIMEOUT,
         )
         response = cloud.request_create_hausie(payload)
         applied = _apply_cloud_artifacts(
@@ -1670,6 +1673,7 @@ def _run_create_base(*, force_full: bool = False) -> None:
             base_url=settings.HAUSIE_CLOUD_URL,
             token=settings.HAUSIE_CLOUD_TOKEN,
             timeout_s=settings.HAUSIE_CLOUD_TIMEOUT,
+            create_hausie_timeout_s=settings.HAUSIE_CLOUD_CREATE_HAUSIE_TIMEOUT,
         )
         response = cloud.request_base_assets(payload)
         log.start("Applying cloud artifacts to Home Assistant config.")
@@ -1750,6 +1754,7 @@ def _run_create_test() -> None:
             base_url=settings.HAUSIE_CLOUD_URL,
             token=settings.HAUSIE_CLOUD_TOKEN,
             timeout_s=settings.HAUSIE_CLOUD_TIMEOUT,
+            create_hausie_timeout_s=settings.HAUSIE_CLOUD_CREATE_HAUSIE_TIMEOUT,
         )
         response = cloud.request_test_assets(payload)
         log.start("Applying cloud artifacts to Home Assistant config.")
@@ -1914,6 +1919,7 @@ def _sync_help_messages_from_cloud(log) -> None:
         base_url=settings.HAUSIE_CLOUD_URL,
         token=settings.HAUSIE_CLOUD_TOKEN,
         timeout_s=settings.HAUSIE_CLOUD_TIMEOUT,
+        create_hausie_timeout_s=settings.HAUSIE_CLOUD_CREATE_HAUSIE_TIMEOUT,
     )
     payload = cloud.request_help_messages()
     views = payload.get("views") if isinstance(payload, dict) else None

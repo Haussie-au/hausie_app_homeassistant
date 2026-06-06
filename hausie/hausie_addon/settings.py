@@ -36,6 +36,12 @@ class Settings:
             self.HAUSIE_CLOUD_TOKEN = token
         self.HAUSIE_DEVICE_ID = device_id
         self.HAUSIE_CLOUD_TIMEOUT = int(os.getenv("HAUSIE_CLOUD_TIMEOUT", "20"))
+        self.HAUSIE_CLOUD_CREATE_HAUSIE_TIMEOUT = int(
+            os.getenv(
+                "HAUSIE_CLOUD_CREATE_HAUSIE_TIMEOUT",
+                str(max(self.HAUSIE_CLOUD_TIMEOUT, 90)),
+            )
+        )
         self.PI_HOST = os.getenv("PI_HOST")
         self.PI_USER = os.getenv("PI_USER")
         self.PI_PORT = int(os.getenv("PI_PORT", "22"))

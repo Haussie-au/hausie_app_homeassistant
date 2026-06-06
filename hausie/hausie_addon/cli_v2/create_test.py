@@ -195,6 +195,7 @@ def main() -> None:
             base_url=s.HAUSIE_CLOUD_URL,
             token=s.HAUSIE_CLOUD_TOKEN,
             timeout_s=s.HAUSIE_CLOUD_TIMEOUT,
+            create_hausie_timeout_s=s.HAUSIE_CLOUD_CREATE_HAUSIE_TIMEOUT,
         )
         response = cloud.request_test_assets(payload)
 
