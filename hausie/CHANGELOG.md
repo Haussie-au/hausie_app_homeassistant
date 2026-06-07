@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.27
+
+- Remove legacy local generation paths from the add-on so Hausie Cloud is the only artifact generator.
+- Keep the add-on focused on Home Assistant execution, artifact application, Browser Mod, Playwright, and support flows.
+- Align help-message ownership so product defaults come from Cloud while the add-on only persists and applies local state.
+
 ## 0.2.14
 
 - Start the Tailscale add-on when remote support opens.
