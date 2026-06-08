@@ -14,6 +14,7 @@ import requests
 
 from .clients.ha_client import HAClient
 from .flow_logger import get_logger
+from .license_state import load_license_state
 
 
 def _run_command(command: list[str]) -> str:
@@ -113,6 +114,7 @@ class HeartbeatReporter:
 
     def _build_payload(self) -> dict[str, Any]:
         support = self._read_support_state()
+        license_state = load_license_state()
         tailscale_ip, tailscale_ip_source = _resolve_tailscale_ip()
         try:
             config = self._ha.get_config()
@@ -129,6 +131,9 @@ class HeartbeatReporter:
             "tailscale_node_id": os.getenv("HAUSIE_TAILSCALE_NODE_ID") or "",
             "tailscale_ip": tailscale_ip,
             "tailscale_ip_source": tailscale_ip_source,
+            "current_plan": str(license_state.get("plan") or "").strip(),
+            "license_status": str(license_state.get("license_status") or "").strip(),
+            "offline_valid_until": license_state.get("offline_valid_until"),
         }
 
     def _next_interval(self) -> int:
@@ -157,8 +162,7 @@ class HeartbeatReporter:
                 data = None
             if isinstance(data, dict) and self._on_actions:
                 actions = data.get("actions")
-                if isinstance(actions, list) and actions:
-                    self._on_actions(actions, data)
+                self._on_actions(actions if isinstance(actions, list) else [], data)
             self._log.ok("Heartbeat sent.")
         except Exception as exc:
             self._log.warn(f"Heartbeat error: {exc}")
