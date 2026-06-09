@@ -521,14 +521,6 @@ def _auto_register_from_pairing_code() -> None:
         except Exception as exc:
             log.warn(f"Pairing validation failed: {exc}")
             return
-        state_path = resolve_state_path()
-        if state_path.exists():
-            try:
-                state_path.unlink()
-            except Exception:
-                pass
-        os.environ.pop("HAUSIE_DEVICE_ID", None)
-        os.environ.pop("HAUSIE_CLOUD_TOKEN", None)
     log.start("Registering add-on with pairing code.")
     try:
         cloud = CloudClient(base_url=base_url, timeout_s=20)
@@ -541,6 +533,12 @@ def _auto_register_from_pairing_code() -> None:
     if not device_id or not token:
         log.warn("Pairing failed: missing device credentials in response.")
         return
+    state_path = resolve_state_path()
+    if state_path.exists():
+        try:
+            state_path.unlink()
+        except Exception:
+            pass
     persist_device_credentials(device_id, token)
     os.environ["HAUSIE_DEVICE_ID"] = device_id
     os.environ["HAUSIE_CLOUD_TOKEN"] = token
