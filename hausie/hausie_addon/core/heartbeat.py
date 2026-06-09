@@ -134,6 +134,7 @@ class HeartbeatReporter:
             "current_plan": str(license_state.get("plan") or "").strip(),
             "license_status": str(license_state.get("license_status") or "").strip(),
             "offline_valid_until": license_state.get("offline_valid_until"),
+            "last_license_sync_at": license_state.get("last_license_sync_at"),
         }
 
     def _next_interval(self) -> int:
