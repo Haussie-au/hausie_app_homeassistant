@@ -1335,8 +1335,24 @@ def _reload_services(ha: HAClient, log) -> None:
         ("group", "reload"),
         ("template", "reload"),
         ("lovelace", "reload"),
+        ("browser_mod", "refresh"),
     ]
+    available: set[tuple[str, str]] | None = None
+    try:
+        service_docs = ha.get_services()
+        available = {
+            (str(entry.get("domain") or ""), str(service.get("service") or ""))
+            for entry in service_docs
+            if isinstance(entry, dict)
+            for service in (entry.get("services") or [])
+            if isinstance(service, dict)
+        }
+    except Exception as exc:
+        log.warn(f"Failed to list Home Assistant services before reload: {exc}")
     for domain, service in services:
+        if available is not None and (domain, service) not in available:
+            log.skip(f"Skipped {domain}.{service}; service is not exposed by this Home Assistant instance.")
+            continue
         try:
             ha.call_service(domain, service, {})
             log.ok(f"Reloaded {domain}.{service}.")
