@@ -356,6 +356,14 @@ sections:
         tap_action:
           action: navigate
           navigation_path: /config/app/local_hausie/info
+      - show_name: true
+        show_icon: true
+        type: button
+        name: Legal documents
+        icon: mdi:file-document-outline
+        tap_action:
+          action: url
+          url_path: https://www.hausiehome.com/portal/legal
     column_span: 1
 badges:
   - type: entity
