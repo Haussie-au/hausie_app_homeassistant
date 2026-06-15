@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.37
+
+- Refresh the add-on license state from cloud before rebuild and cloud asset generation so dashboards are rebuilt with the current paid plan instead of stale cached plan data.
+
 ## 0.2.36
 
 - Remove generated cover YAMLs during Hausie cleanup so stale global blinds groups do not survive rebuilds.

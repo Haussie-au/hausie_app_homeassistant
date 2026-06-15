@@ -171,6 +171,34 @@ def _resolve_subscription_plan(settings: Settings) -> str | None:
     return plan_text or None
 
 
+def _sync_license_state_from_cloud(
+    settings: Settings,
+    log,
+    *,
+    force: bool = False,
+) -> dict[str, Any]:
+    current = load_license_state()
+    if current and not force:
+        return current
+    if not settings.HAUSIE_CLOUD_URL or not settings.HAUSIE_CLOUD_TOKEN:
+        return current
+    try:
+        cloud = CloudClient(
+            base_url=settings.HAUSIE_CLOUD_URL,
+            token=settings.HAUSIE_CLOUD_TOKEN,
+            timeout_s=settings.HAUSIE_CLOUD_TIMEOUT,
+            create_hausie_timeout_s=settings.HAUSIE_CLOUD_CREATE_HAUSIE_TIMEOUT,
+        )
+        payload = cloud.request_subscription_status()
+    except Exception as exc:
+        if force:
+            log.warn(f"Live license sync failed; using cached license state: {exc}")
+        return current
+    if isinstance(payload, dict):
+        return _store_license_payload(payload, log)
+    return current
+
+
 def _update_rebuild_state(state: dict, *, plan: str | None, version: str | None) -> None:
     if plan:
         state["last_plan"] = plan
@@ -1559,8 +1587,8 @@ def _run_create_hausie(*, force_full: bool = False, plan_override: str | None = 
         raw = json.loads(Path(ha.raw_file).read_text(encoding="utf-8"))
         labels = ha.fetch_labels()
         device_id = os.getenv("HAUSIE_DEVICE_ID", "").strip() or settings.HAUSIE_DEVICE_ID
-        current_plan = _resolve_subscription_plan(settings) or ""
-        current_license = load_license_state()
+        current_license = _sync_license_state_from_cloud(settings, log, force=True)
+        current_plan = str(current_license.get("plan") or "").strip() or _resolve_subscription_plan(settings) or ""
         payload = {
             "areas": raw.get("areas", []),
             "devices": raw.get("devices", []),
@@ -1648,7 +1676,8 @@ def _run_rebuild_hausie() -> None:
         state = load_device_state()
         last_plan = str(state.get("last_plan") or "").strip().lower()
         last_version = str(state.get("last_addon_version") or "").strip()
-        current_plan = _resolve_subscription_plan(settings)
+        current_license = _sync_license_state_from_cloud(settings, log, force=True)
+        current_plan = str(current_license.get("plan") or "").strip() or _resolve_subscription_plan(settings)
         current_version = _resolve_addon_version()
         plan = _resolve_remote_rebuild_plan(
             settings,
@@ -1694,8 +1723,8 @@ def _run_create_base(*, force_full: bool = False, plan_override: str | None = No
         except Exception:
             computed_force_full = False
         device_id = os.getenv("HAUSIE_DEVICE_ID", "").strip() or settings.HAUSIE_DEVICE_ID
-        current_plan = _resolve_subscription_plan(settings) or ""
-        current_license = load_license_state()
+        current_license = _sync_license_state_from_cloud(settings, log, force=True)
+        current_plan = str(current_license.get("plan") or "").strip() or _resolve_subscription_plan(settings) or ""
         payload = {
             "areas": raw.get("areas", []),
             "devices": raw.get("devices", []),
@@ -1864,8 +1893,8 @@ def _run_create_test() -> None:
         raw = json.loads(Path(ha.raw_file).read_text(encoding="utf-8"))
         labels = ha.fetch_labels()
         device_id = os.getenv("HAUSIE_DEVICE_ID", "").strip() or settings.HAUSIE_DEVICE_ID
-        current_plan = _resolve_subscription_plan(settings) or ""
-        current_license = load_license_state()
+        current_license = _sync_license_state_from_cloud(settings, log, force=True)
+        current_plan = str(current_license.get("plan") or "").strip() or _resolve_subscription_plan(settings) or ""
         payload = {
             "areas": raw.get("areas", []),
             "users": raw.get("users", []),
@@ -2119,25 +2148,7 @@ def _apply_plan_badge(ha: HAClient, plan_badge: dict | None) -> None:
 
 
 def _refresh_license_state_from_cloud(settings: Settings, log) -> None:
-    # The heartbeat is now the source for runtime license state. Keep this as a
-    # compatibility no-op so older call sites do not emit legacy 404 warnings.
-    license_state = load_license_state()
-    if license_state:
-        return
-    if not settings.HAUSIE_CLOUD_URL or not settings.HAUSIE_CLOUD_TOKEN:
-        return
-    try:
-        cloud = CloudClient(
-            base_url=settings.HAUSIE_CLOUD_URL,
-            token=settings.HAUSIE_CLOUD_TOKEN,
-            timeout_s=settings.HAUSIE_CLOUD_TIMEOUT,
-            create_hausie_timeout_s=settings.HAUSIE_CLOUD_CREATE_HAUSIE_TIMEOUT,
-        )
-        payload = cloud.request_subscription_status()
-    except Exception:
-        return
-    if isinstance(payload, dict):
-        _store_license_payload(payload, log)
+    _sync_license_state_from_cloud(settings, log, force=True)
 
 
 def _ensure_plan_text_helper(root: Path, plan_badge: dict | None) -> None:
