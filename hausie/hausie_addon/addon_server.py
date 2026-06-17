@@ -1115,7 +1115,7 @@ def _cleanup_base_assets() -> dict[str, object]:
     return {"removed": removed, "updated": updated}
 
 
-def _cleanup_hausie_assets() -> dict[str, object]:
+def _cleanup_hausie_assets(*, destructive_reset: bool = False) -> dict[str, object]:
     removed: list[str] = []
     updated: list[str] = []
     log = get_logger("addon")
@@ -1160,69 +1160,70 @@ def _cleanup_hausie_assets() -> dict[str, object]:
 
     _remove_file(root / "dashboards" / _MAIN_DASHBOARD_FILENAME, removed)
 
-    config_dash = root / "dashboards" / _CONFIG_DASHBOARD_FILENAME
-    if _filter_config_views(
-        config_dash,
-        lambda view: (view.get("path") == "main") or (view.get("title") == "Main"),
-    ):
-        updated.append(str(config_dash))
-
-    config_path = os.getenv("PI_CONFIG_PATH", "/homeassistant/configuration.yaml").strip()
-    if config_path:
-        try:
-            manager = ConfigManager(
-                pi_sender=None,
-                config_path=config_path,
-                require_remote=False,
-            )
-            if manager.remove_hausie_entries(keep_test_assets=True):
-                updated.append(config_path)
-        except Exception:
-            pass
-
     ui_cleared = False
-    try:
-        settings = Settings()
-        if settings.HA_UI_USERNAME and settings.HA_UI_PASSWORD:
-            dashboard_path = os.getenv("HA_HAUSIE_DASHBOARD_PATH", "dashboard-hausie/0").strip()
-            base_url = settings.HA_REST_URL.rsplit("/api", 1)[0]
-            headless_flag = os.getenv("HA_PLAYWRIGHT_HEADLESS", "").strip().lower()
-            headless = headless_flag not in {"0", "false", "no"}
-            autom = DashboardUpdater(
-                base_url=base_url,
-                username=settings.HA_UI_USERNAME,
-                password=settings.HA_UI_PASSWORD,
-                headless=headless,
-                storage_state_path=None,
-            )
+    if destructive_reset:
+        config_dash = root / "dashboards" / _CONFIG_DASHBOARD_FILENAME
+        if _filter_config_views(
+            config_dash,
+            lambda view: (view.get("path") == "main") or (view.get("title") == "Main"),
+        ):
+            updated.append(str(config_dash))
+
+        config_path = os.getenv("PI_CONFIG_PATH", "/homeassistant/configuration.yaml").strip()
+        if config_path:
             try:
-                log.start("Replacing Hausie dashboard via UI.")
-                placeholder_yaml = (
-                    "views:\n"
-                    "  - type: sections\n"
-                    "    sections:\n"
-                    "      - type: grid\n"
-                    "        cards: []\n"
-                    "    header:\n"
-                    "      card:\n"
-                    "        type: markdown\n"
-                    "        content: '### Select a plan in your Hausie account, to get this dashboard'\n"
-                    "        title: 'OOOOPS! Update your plan'\n"
+                manager = ConfigManager(
+                    pi_sender=None,
+                    config_path=config_path,
+                    require_remote=False,
                 )
-                autom.write_yaml_to_ui(dashboard_path, placeholder_yaml)
-                ui_cleared = True
-                log.ok("Hausie dashboard replaced via UI.")
-            except Exception as exc:
-                log.warn(f"Dashboard UI cleanup failed: {exc}")
-            finally:
+                if manager.remove_hausie_entries(keep_test_assets=True):
+                    updated.append(config_path)
+            except Exception:
+                pass
+
+        try:
+            settings = Settings()
+            if settings.HA_UI_USERNAME and settings.HA_UI_PASSWORD:
+                dashboard_path = os.getenv("HA_HAUSIE_DASHBOARD_PATH", "dashboard-hausie/0").strip()
+                base_url = settings.HA_REST_URL.rsplit("/api", 1)[0]
+                headless_flag = os.getenv("HA_PLAYWRIGHT_HEADLESS", "").strip().lower()
+                headless = headless_flag not in {"0", "false", "no"}
+                autom = DashboardUpdater(
+                    base_url=base_url,
+                    username=settings.HA_UI_USERNAME,
+                    password=settings.HA_UI_PASSWORD,
+                    headless=headless,
+                    storage_state_path=None,
+                )
                 try:
-                    autom.close()
-                except Exception:
-                    pass
-        else:
-            log.warn("Dashboard UI cleanup skipped: HA_UI_USERNAME/HA_UI_PASSWORD not set.")
-    except Exception as exc:
-        log.warn(f"Dashboard UI cleanup skipped: {exc}")
+                    log.start("Replacing Hausie dashboard via UI.")
+                    placeholder_yaml = (
+                        "views:\n"
+                        "  - type: sections\n"
+                        "    sections:\n"
+                        "      - type: grid\n"
+                        "        cards: []\n"
+                        "    header:\n"
+                        "      card:\n"
+                        "        type: markdown\n"
+                        "        content: '### Select a plan in your Hausie account, to get this dashboard'\n"
+                        "        title: 'OOOOPS! Update your plan'\n"
+                    )
+                    autom.write_yaml_to_ui(dashboard_path, placeholder_yaml)
+                    ui_cleared = True
+                    log.ok("Hausie dashboard replaced via UI.")
+                except Exception as exc:
+                    log.warn(f"Dashboard UI cleanup failed: {exc}")
+                finally:
+                    try:
+                        autom.close()
+                    except Exception:
+                        pass
+            else:
+                log.warn("Dashboard UI cleanup skipped: HA_UI_USERNAME/HA_UI_PASSWORD not set.")
+        except Exception as exc:
+            log.warn(f"Dashboard UI cleanup skipped: {exc}")
 
     return {"removed": removed, "updated": updated, "ui_cleared": ui_cleared}
 
@@ -1649,6 +1650,8 @@ def _run_sync_inventory(
             raw = json.loads(Path(ha.raw_file).read_text(encoding="utf-8"))
             labels = ha.fetch_labels()
             device_id = os.getenv("HAUSIE_DEVICE_ID", "").strip() or settings.HAUSIE_DEVICE_ID
+            addon_slug = (os.getenv("HOSTNAME") or os.getenv("HAUSIE_ADDON_SLUG") or "").strip()
+            addon_slug = (os.getenv("HOSTNAME") or os.getenv("HAUSIE_ADDON_SLUG") or "").strip()
             current_license = _sync_license_state_from_cloud(settings, log, force=True)
             current_plan = _normalize_plan_id(current_license.get("plan"), "") or _resolve_subscription_plan(settings) or ""
             payload = {
@@ -1661,6 +1664,8 @@ def _run_sync_inventory(
                 "current_plan": current_plan,
                 "license_status": str(current_license.get("license_status") or "").strip(),
             }
+            if addon_slug:
+                payload["addon_slug"] = addon_slug
             if force_full:
                 payload["force_full"] = True
             if plan_override:
@@ -1809,6 +1814,8 @@ def _run_create_base(
                 "current_plan": current_plan,
                 "license_status": str(current_license.get("license_status") or "").strip(),
             }
+            if addon_slug:
+                payload["addon_slug"] = addon_slug
             if plan_override:
                 payload["plan_override"] = str(plan_override).strip()
             if device_id:
@@ -1857,7 +1864,7 @@ def _run_restart_hausie() -> None:
     with _workflow_activity("Restarting Hausie", manage_lock=True):
         with log.script("restart_hausie"):
             _cleanup_base_assets()
-            _cleanup_hausie_assets()
+            _cleanup_hausie_assets(destructive_reset=True)
             _run_create_base(force_full=True, manage_activity=False)
             _run_sync_inventory(force_full=True, manage_activity=False)
             settings = Settings()

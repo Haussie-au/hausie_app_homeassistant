@@ -1,6 +1,6 @@
 name: Hausie App
 slug: hausie
-version: "0.2.38"
+version: "0.2.41"
 description: Hausie add-on for Home Assistant OS
 arch:
   - aarch64
