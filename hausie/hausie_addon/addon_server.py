@@ -1467,6 +1467,7 @@ def _update_device_name_area(
 
 def _reload_services(ha: HAClient, log) -> None:
     services = [
+        ("homeassistant", "reload_core_config"),
         ("input_text", "reload"),
         ("input_button", "reload"),
         ("input_boolean", "reload"),
@@ -1483,13 +1484,28 @@ def _reload_services(ha: HAClient, log) -> None:
     available: set[tuple[str, str]] | None = None
     try:
         service_docs = ha.get_services()
-        available = {
-            (str(entry.get("domain") or ""), str(service.get("service") or ""))
-            for entry in service_docs
-            if isinstance(entry, dict)
-            for service in (entry.get("services") or [])
-            if isinstance(service, dict)
-        }
+        parsed: set[tuple[str, str]] = set()
+        for entry in service_docs:
+            if not isinstance(entry, dict):
+                continue
+            domain = str(entry.get("domain") or "").strip()
+            if not domain:
+                continue
+            services_block = entry.get("services")
+            if isinstance(services_block, dict):
+                for service_name in services_block.keys():
+                    name = str(service_name or "").strip()
+                    if name:
+                        parsed.add((domain, name))
+                continue
+            if isinstance(services_block, list):
+                for service in services_block:
+                    if not isinstance(service, dict):
+                        continue
+                    name = str(service.get("service") or "").strip()
+                    if name:
+                        parsed.add((domain, name))
+        available = parsed or None
     except Exception as exc:
         log.warn(f"Failed to list Home Assistant services before reload: {exc}")
     reloaded = 0

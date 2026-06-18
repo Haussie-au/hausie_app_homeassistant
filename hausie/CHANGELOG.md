@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.49
+
+- Fix Home Assistant service reload detection after applying cloud artifacts so helpers, groups, and YAML-backed entities are reloaded instead of being skipped as unavailable.
+- Restore `homeassistant.reload_core_config` during post-apply reloads so dashboard entities such as YAML cover groups are picked up reliably after rebuilds.
+
 ## 0.2.48
 
 - Preserve the remote support helper during cleanup flows and restore it on add-on startup so `input_boolean.allow_remote_support` does not become unavailable in the config dashboard.
