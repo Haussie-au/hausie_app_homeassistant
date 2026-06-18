@@ -735,8 +735,10 @@ def _start_inventory_monitor() -> None:
                 state = load_device_state()
                 last_signature = str(state.get("last_inventory_signature") or "").strip()
                 if not last_signature:
-                    log.start("Inventory signature missing; running initial sync.")
-                    _run_sync_inventory(manage_activity=True)
+                    state["last_inventory_signature"] = current_signature
+                    state["last_inventory_baselined_at"] = int(time.time())
+                    save_device_state(state)
+                    log.info("Inventory signature missing; stored startup baseline without auto-sync.")
                 elif current_signature != last_signature:
                     log.start("Inventory change detected; syncing to cloud.")
                     _run_sync_inventory(manage_activity=True)

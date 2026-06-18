@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.50
+
+- Stop auto-running `sync_inventory` on add-on startup when no previous inventory signature exists.
+- Store a local inventory baseline at startup and only sync to cloud when the inventory changes after boot or when a manual refresh is requested.
+
 ## 0.2.49
 
 - Fix Home Assistant service reload detection after applying cloud artifacts so helpers, groups, and YAML-backed entities are reloaded instead of being skipped as unavailable.
