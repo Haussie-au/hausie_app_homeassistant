@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.47
+
+- Detect Home Assistant inventory changes in the add-on and automatically run `sync_inventory` so newly added devices are pushed to Hausie Cloud without waiting for a manual refresh.
+
 ## 0.2.37
 
 - Refresh the add-on license state from cloud before rebuild and cloud asset generation so dashboards are rebuilt with the current paid plan instead of stale cached plan data.
