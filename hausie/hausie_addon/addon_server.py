@@ -1419,6 +1419,15 @@ def _reload_browser_frontends(ha: HAClient, log) -> None:
         log.warn(f"Browser refresh skipped: {exc}")
 
 
+def _restart_home_assistant(ha: HAClient, log) -> None:
+    try:
+        log.start("Requesting Home Assistant restart.")
+        ha.call_service("homeassistant", "restart", {})
+        log.ok("Home Assistant restart requested.")
+    except Exception as exc:
+        log.warn(f"Home Assistant restart skipped: {exc}")
+
+
 def _apply_cloud_artifacts(
     *,
     remote_root: str,
@@ -1780,6 +1789,7 @@ def _run_rebuild_hausie() -> None:
             _restore_rebuild_helper_values(ha, helper_snapshot, log)
             final_plan = str(plan.get("plan") or current_plan or "").strip() or None
             _update_rebuild_state(state, plan=final_plan, version=current_version)
+            _restart_home_assistant(ha, log)
 
 
 def _run_create_base(

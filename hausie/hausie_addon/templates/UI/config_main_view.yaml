@@ -44,24 +44,23 @@ sections:
       - show_name: true
         show_icon: true
         type: button
-        entity: input_button.core_rebuild_hausie
+        entity: input_button.core_sync_inventory
         grid_options:
           columns: 12
           rows: 2
-        name: Repair Hausie
-        icon: mdi:home-assistant
+        name: Refresh Hausie
         tap_action:
           action: fire-dom-event
           browser_mod:
             service: browser_mod.popup
             data:
-              title: Repair Hausie
+              title: Refresh Hausie
               dismissable: false
               content:
                 type: markdown
                 content: >-
-                  Use this if something is missing or not working correctly.
-                  Hausie will rebuild your setup from the current Home Assistant data.
+                  Use this after adding, moving, or changing devices in Home Assistant.
+                  Hausie will refresh your home layout and device setup.
               left_button: Cancel
               left_button_action:
                 action: call-service
@@ -76,7 +75,7 @@ sections:
                     - service: browser_mod.popup
                       data:
                         dismissable: false
-                        title: Repair Hausie
+                        title: Refresh Hausie
                         content:
                           type: vertical-stack
                           cards:
@@ -104,18 +103,18 @@ sections:
                                 }
                             - type: markdown
                               content: >-
-                                Repairing Hausie. Please wait while rooms, devices,
-                                groups, dashboards, helpers, and automations are rebuilt.
+                                Refreshing Hausie. Please wait while devices, rooms,
+                                groups, dashboards, and automations are updated.
                               text_only: true
-                    - service: rest_command.rebuild_hausie
+                    - service: rest_command.sync_inventory
                     - service: browser_mod.close_popup
                     - service: browser_mod.popup
                       data:
-                        title: Hausie repaired
+                        title: Hausie refreshed
                         content:
                           type: markdown
                           content: >-
-                            Hausie finished rebuilding and reapplying your setup.
+                            Hausie finished updating your home setup.
                           text_only: true
                         left_button: Close
                         left_button_action:
@@ -258,20 +257,21 @@ sections:
       - show_name: true
         show_icon: true
         type: button
-        entity: input_button.core_sync_inventory
-        name: Refresh Hausie
+        entity: input_button.core_rebuild_hausie
+        name: Repair Hausie
+        icon: mdi:home-assistant
         tap_action:
           action: fire-dom-event
           browser_mod:
             service: browser_mod.popup
             data:
-              title: Refresh Hausie
+              title: Repair Hausie
               dismissable: false
               content:
                 type: markdown
                 content: >-
-                  Use this after adding, moving, or changing devices in Home Assistant.
-                  Hausie will refresh your home layout and device setup.
+                  Use this if something is missing or not working correctly.
+                  Hausie will rebuild your setup from the current Home Assistant data.
               left_button: Cancel
               left_button_action:
                 action: call-service
@@ -286,7 +286,7 @@ sections:
                     - service: browser_mod.popup
                       data:
                         dismissable: false
-                        title: Refresh Hausie
+                        title: Repair Hausie
                         content:
                           type: vertical-stack
                           cards:
@@ -314,18 +314,18 @@ sections:
                                 }
                             - type: markdown
                               content: >-
-                                Refreshing Hausie. Please wait while devices, rooms,
-                                groups, dashboards, and automations are updated.
+                                Repairing Hausie. Please wait while rooms, devices,
+                                groups, dashboards, helpers, and automations are rebuilt.
                               text_only: true
-                    - service: rest_command.sync_inventory
+                    - service: rest_command.rebuild_hausie
                     - service: browser_mod.close_popup
                     - service: browser_mod.popup
                       data:
-                        title: Hausie refreshed
+                        title: Hausie repaired
                         content:
                           type: markdown
                           content: >-
-                            Hausie finished updating your home setup.
+                            Hausie finished rebuilding and reapplying your setup.
                           text_only: true
                         left_button: Close
                         left_button_action:
@@ -350,11 +350,11 @@ sections:
       - show_name: true
         show_icon: true
         type: button
-        name: Update Hausie App
-        icon: mdi:update
+        name: Hausie App
+        icon: mdi:home-assistant
         tap_action:
           action: navigate
-          navigation_path: /config/app/hausie/info
+          navigation_path: /config/app/c5bb2897_hausie/info
       - show_name: true
         show_icon: true
         type: button
