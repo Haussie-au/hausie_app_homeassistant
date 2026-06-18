@@ -7,6 +7,7 @@ import shutil
 import tempfile
 import threading
 import time
+import hashlib
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Any
@@ -355,6 +356,8 @@ _HEARTBEAT_ACTION_RUNNING = False
 _WORKFLOW_LOCK = threading.Lock()
 _LICENSE_MONITOR_THREAD: threading.Thread | None = None
 _LICENSE_MONITOR_STOP = threading.Event()
+_INVENTORY_MONITOR_THREAD: threading.Thread | None = None
+_INVENTORY_MONITOR_STOP = threading.Event()
 
 _BASE_AUTOMATION_IDS = {
     "new_device_created",
@@ -664,6 +667,87 @@ def _start_license_monitor() -> None:
     _LICENSE_MONITOR_STOP.clear()
     _LICENSE_MONITOR_THREAD = threading.Thread(target=_loop, daemon=True)
     _LICENSE_MONITOR_THREAD.start()
+
+
+def _canonicalize_inventory_signature_value(value: Any) -> Any:
+    """Normalize inventory values so ordering noise does not change the signature."""
+    if isinstance(value, dict):
+        return {
+            str(key): _canonicalize_inventory_signature_value(val)
+            for key, val in sorted(value.items(), key=lambda item: str(item[0]))
+        }
+    if isinstance(value, list):
+        normalized = [_canonicalize_inventory_signature_value(item) for item in value]
+        return sorted(
+            normalized,
+            key=lambda item: json.dumps(item, sort_keys=True, ensure_ascii=False, separators=(",", ":")),
+        )
+    return value
+
+
+def _build_inventory_signature(raw: dict[str, Any], labels: list[dict[str, Any]]) -> str:
+    """Return a stable hash for the current HA inventory snapshot."""
+    snapshot = {
+        "areas": raw.get("areas") or [],
+        "devices": raw.get("devices") or [],
+        "entities": raw.get("entities") or [],
+        "labels": labels or [],
+    }
+    canonical = _canonicalize_inventory_signature_value(snapshot)
+    payload = json.dumps(canonical, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _resolve_inventory_monitor_interval() -> int:
+    raw = os.getenv("HAUSIE_INVENTORY_MONITOR_INTERVAL_S", "").strip()
+    try:
+        interval = int(raw) if raw else 300
+    except ValueError:
+        interval = 300
+    return max(60, interval)
+
+
+def _capture_inventory_signature(settings: Settings) -> str:
+    """Fetch the latest HA inventory snapshot and return its signature."""
+    ha = HAClient(ha_url_ws=settings.HA_WS_URL, ha_url_rest=settings.HA_REST_URL, token=settings.HA_TOKEN)
+    ha.fetch_all(include_users=False)
+    raw = json.loads(Path(ha.raw_file).read_text(encoding="utf-8"))
+    labels = ha.fetch_labels()
+    return _build_inventory_signature(raw, labels)
+
+
+def _start_inventory_monitor() -> None:
+    global _INVENTORY_MONITOR_THREAD
+    if _INVENTORY_MONITOR_THREAD and _INVENTORY_MONITOR_THREAD.is_alive():
+        return
+
+    def _loop() -> None:
+        log = get_logger("inventory")
+        interval_s = _resolve_inventory_monitor_interval()
+        while not _INVENTORY_MONITOR_STOP.is_set():
+            try:
+                settings = Settings()
+                if not settings.HA_TOKEN or not settings.HAUSIE_CLOUD_URL:
+                    _INVENTORY_MONITOR_STOP.wait(interval_s)
+                    continue
+                current_signature = _capture_inventory_signature(settings)
+                state = load_device_state()
+                last_signature = str(state.get("last_inventory_signature") or "").strip()
+                if not last_signature:
+                    log.start("Inventory signature missing; running initial sync.")
+                    _run_sync_inventory(manage_activity=True)
+                elif current_signature != last_signature:
+                    log.start("Inventory change detected; syncing to cloud.")
+                    _run_sync_inventory(manage_activity=True)
+            except RuntimeError as exc:
+                log.info(f"Inventory monitor skipped: {exc}")
+            except Exception as exc:
+                log.warn(f"Inventory monitor failed: {exc}")
+            _INVENTORY_MONITOR_STOP.wait(interval_s)
+
+    _INVENTORY_MONITOR_STOP.clear()
+    _INVENTORY_MONITOR_THREAD = threading.Thread(target=_loop, daemon=True)
+    _INVENTORY_MONITOR_THREAD.start()
 
 
 def _sync_local_config() -> None:
@@ -1746,6 +1830,10 @@ def _run_sync_inventory(
             _sync_voice_exposure(ha, response if isinstance(response, dict) else None, log)
             _apply_plan_badge(ha, response.get("plan_badge") if isinstance(response, dict) else None)
             _refresh_license_state_from_cloud(settings, log)
+            state = load_device_state()
+            state["last_inventory_signature"] = _build_inventory_signature(raw, labels)
+            state["last_inventory_synced_at"] = int(time.time())
+            save_device_state(state)
             enabled = _turn_on_user_helpers(ha)
             if enabled:
                 log.ok(f"User helpers enabled: {enabled}.")
@@ -3092,6 +3180,7 @@ def run(host: str = "0.0.0.0", port: int = 8000) -> None:
     _start_remote_support_manager()
     _start_heartbeat()
     _start_license_monitor()
+    _start_inventory_monitor()
     _sync_local_config()
     try:
         _resync_voice_exposure_from_state(log)
@@ -3103,6 +3192,7 @@ def run(host: str = "0.0.0.0", port: int = 8000) -> None:
         log.warn("Addon stopping (KeyboardInterrupt).")
     finally:
         _LICENSE_MONITOR_STOP.set()
+        _INVENTORY_MONITOR_STOP.set()
         try:
             server.server_close()
         except Exception:
