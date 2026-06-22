@@ -17,6 +17,22 @@ _BLOCK_START = "# hausie-support-keys-start"
 _BLOCK_END = "# hausie-support-keys-end"
 
 
+def _is_transient_ha_unavailable(exc: Exception) -> bool:
+    message = str(exc).lower()
+    if isinstance(exc, requests.exceptions.RequestException):
+        return True
+    return any(
+        marker in message
+        for marker in (
+            "connection refused",
+            "max retries exceeded",
+            "failed to establish a new connection",
+            "remote end closed connection",
+            "temporarily unavailable",
+        )
+    )
+
+
 def _read_secret_file(path: str | None) -> str | None:
     if not path:
         return None
@@ -124,6 +140,8 @@ class RemoteSupportManager:
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._last_toggle: bool | None = None
+        self._last_toggle_read_error_at: float | None = None
+        self._last_toggle_read_error_message: str | None = None
         self._state = self._load_state()
 
     def _load_state(self) -> SupportState:
@@ -418,8 +436,23 @@ class RemoteSupportManager:
         try:
             enabled = self._read_toggle_state()
         except Exception as exc:
-            self._log.warn(f"Failed to read toggle: {exc}")
+            message = str(exc)
+            if _is_transient_ha_unavailable(exc):
+                now = time.time()
+                repeated = self._last_toggle_read_error_message == message
+                recent = (
+                    self._last_toggle_read_error_at is not None
+                    and (now - self._last_toggle_read_error_at) < 60
+                )
+                if not (repeated and recent):
+                    self._log.info(f"Home Assistant unavailable while reading remote support toggle; retrying: {exc}")
+                self._last_toggle_read_error_at = now
+                self._last_toggle_read_error_message = message
+            else:
+                self._log.warn(f"Failed to read toggle: {exc}")
             return
+        self._last_toggle_read_error_at = None
+        self._last_toggle_read_error_message = None
 
         if self._last_toggle is None:
             self._last_toggle = enabled

@@ -52,6 +52,20 @@ from .settings import Settings
 ROOT_DIR = Path(__file__).resolve().parents[1]
 
 
+def _ha_restart_exception_is_expected(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return any(
+        marker in message
+        for marker in (
+            "service call failed 504",
+            "connection refused",
+            "remote end closed connection",
+            "read timed out",
+            "max retries exceeded",
+        )
+    )
+
+
 def _load_addon_options() -> None:
     option_keys = {
         "ha_token",
@@ -1546,6 +1560,9 @@ def _restart_home_assistant(ha: HAClient, log) -> None:
         ha.call_service("homeassistant", "restart", {})
         log.ok("Home Assistant restart requested.")
     except Exception as exc:
+        if _ha_restart_exception_is_expected(exc):
+            log.info(f"Home Assistant restart is in progress: {exc}")
+            return
         log.warn(f"Home Assistant restart skipped: {exc}")
 
 
@@ -2756,7 +2773,10 @@ class _AddonHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
-        self.wfile.write(data)
+        try:
+            self.wfile.write(data)
+        except (BrokenPipeError, ConnectionResetError):
+            get_logger("addon").info("Client disconnected before JSON response was delivered.")
 
     def _send_text(self, code: int, text: str, content_type: str = "text/plain; charset=utf-8") -> None:
         data = text.encode("utf-8")
@@ -2764,7 +2784,10 @@ class _AddonHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
-        self.wfile.write(data)
+        try:
+            self.wfile.write(data)
+        except (BrokenPipeError, ConnectionResetError):
+            get_logger("addon").info("Client disconnected before text response was delivered.")
 
     def _authorize(self) -> bool:
         expected = _resolve_notify_api_key()
