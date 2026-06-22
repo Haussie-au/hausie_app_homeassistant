@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.53
+
+- Run long-lived Hausie add-on actions such as refresh, repair, restart, and base rebuild in the background so the UI no longer gets stuck waiting for a long HTTP response.
+- Return an immediate accepted response for manual Hausie actions and reject overlapping runs cleanly when another Hausie workflow is already in progress.
+
 ## 0.2.52
 
 - Treat expected Home Assistant restart disconnects as transient so rebuild logs do not report false restart failures.

@@ -66,6 +66,23 @@ def _ha_restart_exception_is_expected(exc: Exception) -> bool:
     )
 
 
+def _start_background_workflow(action_name: str, runner) -> None:
+    log = get_logger("addon")
+
+    def _wrapped() -> None:
+        try:
+            runner()
+        except Exception as exc:
+            log.error(f"Background action failed: {action_name} ({exc})")
+
+    thread = threading.Thread(
+        target=_wrapped,
+        name=f"hausie-{action_name}",
+        daemon=True,
+    )
+    thread.start()
+
+
 def _load_addon_options() -> None:
     option_keys = {
         "ha_token",
@@ -3035,60 +3052,55 @@ class _AddonHandler(BaseHTTPRequestHandler):
             if not self._authorize():
                 self._send_json(401, {"error": "Unauthorized"})
                 return
-            try:
-                _run_create_base()
-            except Exception as exc:
-                self._send_json(500, {"error": str(exc)})
+            if _WORKFLOW_LOCK.locked():
+                self._send_json(409, {"error": "Another Hausie action is already in progress."})
                 return
-            self._send_json(200, {"ok": True})
+            _start_background_workflow("create_base", _run_create_base)
+            self._send_json(202, {"ok": True, "started": True})
             return
 
         if path == "/run/rebuild_hausie":
             if not self._authorize():
                 self._send_json(401, {"error": "Unauthorized"})
                 return
-            try:
-                _run_rebuild_hausie()
-            except Exception as exc:
-                self._send_json(500, {"error": str(exc)})
+            if _WORKFLOW_LOCK.locked():
+                self._send_json(409, {"error": "Another Hausie action is already in progress."})
                 return
-            self._send_json(200, {"ok": True})
+            _start_background_workflow("rebuild_hausie", _run_rebuild_hausie)
+            self._send_json(202, {"ok": True, "started": True})
             return
 
         if path == "/run/restart_hausie":
             if not self._authorize():
                 self._send_json(401, {"error": "Unauthorized"})
                 return
-            try:
-                _run_restart_hausie()
-            except Exception as exc:
-                self._send_json(500, {"error": str(exc)})
+            if _WORKFLOW_LOCK.locked():
+                self._send_json(409, {"error": "Another Hausie action is already in progress."})
                 return
-            self._send_json(200, {"ok": True})
+            _start_background_workflow("restart_hausie", _run_restart_hausie)
+            self._send_json(202, {"ok": True, "started": True})
             return
 
         if path == "/run/create_hausie":
             if not self._authorize():
                 self._send_json(401, {"error": "Unauthorized"})
                 return
-            try:
-                _run_sync_inventory()
-            except Exception as exc:
-                self._send_json(500, {"error": str(exc)})
+            if _WORKFLOW_LOCK.locked():
+                self._send_json(409, {"error": "Another Hausie action is already in progress."})
                 return
-            self._send_json(200, {"ok": True})
+            _start_background_workflow("create_hausie", _run_sync_inventory)
+            self._send_json(202, {"ok": True, "started": True})
             return
 
         if path == "/run/sync_inventory":
             if not self._authorize():
                 self._send_json(401, {"error": "Unauthorized"})
                 return
-            try:
-                _run_sync_inventory()
-            except Exception as exc:
-                self._send_json(500, {"error": str(exc)})
+            if _WORKFLOW_LOCK.locked():
+                self._send_json(409, {"error": "Another Hausie action is already in progress."})
                 return
-            self._send_json(200, {"ok": True})
+            _start_background_workflow("sync_inventory", _run_sync_inventory)
+            self._send_json(202, {"ok": True, "started": True})
             return
 
         if path == "/run/create_test":
