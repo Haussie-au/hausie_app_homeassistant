@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.56
+
+- Remove the `Add Zigbee Device` button from the configuration dashboard while keeping the underlying Zigbee onboarding logic available in the add-on.
+- Keep the `Hausie App` dashboard shortcut pointed at `/config/app/c5bb2897_hausie/info`.
+
 ## 0.2.55
 
 - Accept cloud subscription payloads that return `tier` instead of `plan` so the add-on keeps the correct licensed plan instead of falling back to `plan_1`.
