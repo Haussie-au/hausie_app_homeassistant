@@ -371,6 +371,50 @@ class HAClient:
             ws.close()
         return self._normalize_labels(labels)
 
+    def create_label(
+        self,
+        *,
+        name: str,
+        icon: str | None = None,
+        color: str | None = None,
+    ) -> dict:
+        """Create a Home Assistant label."""
+        payload = {"name": str(name or "").strip()}
+        if not payload["name"]:
+            raise ValueError("Label name is required.")
+        if icon:
+            payload["icon"] = str(icon).strip()
+        if color:
+            payload["color"] = str(color).strip()
+        result = self._auth_ws_call("config/label_registry/create", payload)
+        normalized = self._normalize_labels([result] if isinstance(result, dict) else [])
+        return normalized[0] if normalized else {}
+
+    def update_label(
+        self,
+        *,
+        label_id: str,
+        name: str,
+        icon: str | None = None,
+        color: str | None = None,
+    ) -> dict:
+        """Update a Home Assistant label."""
+        payload = {
+            "label_id": str(label_id or "").strip(),
+            "name": str(name or "").strip(),
+        }
+        if not payload["label_id"]:
+            raise ValueError("label_id is required.")
+        if not payload["name"]:
+            raise ValueError("Label name is required.")
+        if icon:
+            payload["icon"] = str(icon).strip()
+        if color:
+            payload["color"] = str(color).strip()
+        result = self._auth_ws_call("config/label_registry/update", payload)
+        normalized = self._normalize_labels([result] if isinstance(result, dict) else [])
+        return normalized[0] if normalized else {}
+
     def list_exposed_entities(self) -> dict[str, dict[str, bool]]:
         """Return explicit voice-assistant exposure preferences per entity."""
         result = self._auth_ws_call("homeassistant/expose_entity/list") or {}

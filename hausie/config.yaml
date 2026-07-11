@@ -1,6 +1,6 @@
 name: Hausie App
 slug: hausie
-version: "0.2.60"
+version: "0.2.62"
 description: Hausie add-on for Home Assistant OS
 arch:
   - aarch64
@@ -31,12 +31,6 @@ options:
   hausie_cloud_url: ""
   pairing_code: ""
   tailscale_ip: ""
-  log_file: ""
-  log_to_stdout: true
-  log_clear_on_start: false
-  log_max_bytes: 1048576
-  manage_tailscale: true
-  tailscale_addon_slug: "a0d7b954_tailscale"
 schema:
   ha_token: password?
   ha_ui_username: str?
@@ -44,9 +38,3 @@ schema:
   hausie_cloud_url: str?
   pairing_code: password?
   tailscale_ip: str?
-  log_file: str?
-  log_to_stdout: bool?
-  log_clear_on_start: bool?
-  log_max_bytes: int?
-  manage_tailscale: bool?
-  tailscale_addon_slug: str?

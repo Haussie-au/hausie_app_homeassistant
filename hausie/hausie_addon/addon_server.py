@@ -90,12 +90,6 @@ def _load_addon_options() -> None:
         "ha_token",
         "hausie_cloud_url",
         "pairing_code",
-        "log_file",
-        "log_to_stdout",
-        "log_clear_on_start",
-        "log_max_bytes",
-        "manage_tailscale",
-        "tailscale_addon_slug",
         "tailscale_ip",
     }
     candidate_paths: list[Path] = [Path("/data/options.json")]
@@ -125,12 +119,6 @@ def _load_addon_options() -> None:
         "ha_token": "HA_TOKEN",
         "hausie_cloud_url": "HAUSIE_CLOUD_URL",
         "pairing_code": "HAUSIE_PAIRING_CODE",
-        "log_file": "HAUSIE_LOG_FILE",
-        "log_to_stdout": "HAUSIE_LOG_TO_STDOUT",
-        "log_clear_on_start": "TEST_LOG_CLEAR_ON_START",
-        "log_max_bytes": "HAUSIE_LOG_MAX_BYTES",
-        "manage_tailscale": "HAUSIE_SUPPORT_MANAGE_TAILSCALE",
-        "tailscale_addon_slug": "TAILSCALE_ADDON_SLUG",
         "tailscale_ip": "HAUSIE_TAILSCALE_IP",
     }
     for option_key, env_key in mappings.items():
@@ -848,9 +836,8 @@ def _start_remote_support_manager() -> None:
     if not support_session_url and base:
         support_session_url = f"{base}/api/device/support-session"
     manage_ssh = os.getenv("HAUSIE_SUPPORT_MANAGE_SSH", "true").strip().lower() not in {"0", "false", "no"}
-    ssh_slug = os.getenv("SSH_ADDON_SLUG", "a0d7b954_ssh").strip()
-    manage_tailscale = os.getenv("HAUSIE_SUPPORT_MANAGE_TAILSCALE", "true").strip().lower() not in {"0", "false", "no"}
-    tailscale_slug = os.getenv("TAILSCALE_ADDON_SLUG", "a0d7b954_tailscale").strip()
+    ssh_slug = os.getenv("SSH_ADDON_SLUG", "").strip() or _autodetect_addon_slug("ssh") or "a0d7b954_ssh"
+    tailscale_slug = _autodetect_addon_slug("tailscale") or "a0d7b954_tailscale"
     _SUPPORT_MANAGER = RemoteSupportManager(
         ha_client=ha,
         toggle_entity=toggle_entity,
@@ -861,7 +848,7 @@ def _start_remote_support_manager() -> None:
         state_path=os.getenv("HAUSIE_SUPPORT_STATE_PATH", "/data/hausie_support_state.json"),
         manage_ssh_addon=manage_ssh,
         ssh_addon_slug=ssh_slug,
-        manage_tailscale_addon=manage_tailscale,
+        manage_tailscale_addon=True,
         tailscale_addon_slug=tailscale_slug,
         support_session_url=support_session_url,
         support_keys_url=support_keys_url,
@@ -1120,6 +1107,31 @@ def _resolve_pairing_ingress_path() -> str:
     return "/config-dashboard/new-devices"
 
 
+def _autodetect_addon_slug(*keywords: str) -> str | None:
+    lowered = [str(item or "").strip().lower() for item in keywords if str(item or "").strip()]
+    if not lowered:
+        return None
+    data = _supervisor_request("GET", "/addons")
+    body = data.get("data") if isinstance(data.get("data"), dict) else data
+    addons = body.get("addons") if isinstance(body, dict) else None
+    if not isinstance(addons, list):
+        return None
+    for addon in addons:
+        if not isinstance(addon, dict):
+            continue
+        candidates = [
+            str(addon.get("slug") or "").strip(),
+            str(addon.get("name") or "").strip(),
+            str(addon.get("repository") or "").strip(),
+        ]
+        haystack = " ".join(item.lower() for item in candidates if item)
+        if haystack and all(keyword in haystack for keyword in lowered):
+            slug = str(addon.get("slug") or "").strip()
+            if slug:
+                return slug
+    return None
+
+
 def _patch_add_device_shortcut(log) -> None:
     dashboard_path = resolve_config_dashboard_path()
     if not dashboard_path.exists() or not _pairing_is_unlocked():
@@ -1324,6 +1336,7 @@ _HEARTBEAT_ALLOWED_ACTIONS = {
     "refresh_plan",
     "reset_pairing",
     "restart_hausie",
+    "sync_label_catalog",
     "sync_help_messages",
     "update_heartbeat_interval",
     "update_plan",
@@ -1449,6 +1462,33 @@ def _handle_heartbeat_actions(actions: list[Any], payload: dict[str, Any] | None
             with log.script("sync_help_messages"):
                 _sync_help_messages_from_cloud(log)
             normalized = [action for action in normalized if str(action.get("type") or "").strip().lower() != "sync_help_messages"]
+            if not normalized:
+                return
+        if "sync_label_catalog" in lower_actions:
+            with log.script("sync_label_catalog"):
+                settings = Settings()
+                ha = HAClient(
+                    ha_url_ws=settings.HA_WS_URL,
+                    ha_url_rest=settings.HA_REST_URL,
+                    token=settings.HA_TOKEN,
+                )
+                for action in normalized:
+                    if str(action.get("type") or "").strip().lower() != "sync_label_catalog":
+                        continue
+                    payload_data = action.get("payload") if isinstance(action.get("payload"), dict) else {}
+                    expected_version = payload_data.get("version")
+                    try:
+                        expected_version = int(expected_version) if expected_version is not None else None
+                    except Exception:
+                        expected_version = None
+                    _sync_label_catalog_from_cloud(
+                        ha,
+                        settings,
+                        log,
+                        force=False,
+                        expected_version=expected_version,
+                    )
+            normalized = [action for action in normalized if str(action.get("type") or "").strip().lower() != "sync_label_catalog"]
             if not normalized:
                 return
         if "update_heartbeat_interval" in lower_actions:
@@ -2266,6 +2306,117 @@ def _resync_voice_exposure_from_state(log) -> None:
     )
 
 
+def _normalize_label_catalog_entries(labels: Any) -> list[dict[str, Any]]:
+    if not isinstance(labels, list):
+        return []
+    normalized: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
+    for entry in labels:
+        if not isinstance(entry, dict):
+            continue
+        label_id = str(entry.get("id") or "").strip()
+        name = str(entry.get("name") or label_id or "").strip()
+        if not label_id or not name or label_id in seen_ids:
+            continue
+        seen_ids.add(label_id)
+        normalized.append(
+            {
+                "id": label_id,
+                "name": name,
+                "icon": str(entry.get("icon") or "").strip() or None,
+                "color": str(entry.get("color") or "").strip() or None,
+                "description": str(entry.get("description") or "").strip(),
+            }
+        )
+    return normalized
+
+
+def _sync_label_catalog_from_cloud(
+    ha: HAClient,
+    settings: Settings,
+    log,
+    *,
+    force: bool = False,
+    expected_version: int | None = None,
+) -> bool:
+    if not settings.HAUSIE_CLOUD_URL or not settings.HAUSIE_CLOUD_TOKEN:
+        return False
+    cloud = CloudClient(
+        base_url=settings.HAUSIE_CLOUD_URL,
+        token=settings.HAUSIE_CLOUD_TOKEN,
+        timeout_s=settings.HAUSIE_CLOUD_TIMEOUT,
+        create_hausie_timeout_s=settings.HAUSIE_CLOUD_CREATE_HAUSIE_TIMEOUT,
+    )
+    catalog = cloud.request_label_catalog()
+    version = catalog.get("version")
+    try:
+        version_int = int(version) if version is not None else None
+    except Exception:
+        version_int = None
+    if expected_version is not None:
+        version_int = expected_version
+    state = load_device_state()
+    applied_version = state.get("applied_label_catalog_version")
+    try:
+        applied_version_int = int(applied_version) if applied_version is not None else None
+    except Exception:
+        applied_version_int = None
+    if not force and version_int is not None and applied_version_int == version_int:
+        return False
+
+    desired_labels = _normalize_label_catalog_entries(catalog.get("labels"))
+    if not desired_labels:
+        return False
+
+    current_labels = ha.fetch_labels()
+    current_by_id = {
+        str(label.get("id") or "").strip(): label
+        for label in current_labels
+        if isinstance(label, dict) and str(label.get("id") or "").strip()
+    }
+    current_by_name = {
+        str(label.get("name") or "").strip(): label
+        for label in current_labels
+        if isinstance(label, dict) and str(label.get("name") or "").strip()
+    }
+
+    created = 0
+    updated = 0
+    for label in desired_labels:
+        target = current_by_id.get(label["id"])
+        if target is None:
+            target = current_by_name.get(label["name"])
+        if target is None:
+            ha.create_label(name=label["name"], icon=label.get("icon"), color=label.get("color"))
+            created += 1
+            continue
+        current_name = str(target.get("name") or "").strip()
+        current_icon = str(target.get("icon") or "").strip() or None
+        current_color = str(target.get("color") or "").strip() or None
+        if (
+            current_name != label["name"]
+            or current_icon != label.get("icon")
+            or current_color != label.get("color")
+        ):
+            resolved_label_id = str(target.get("id") or "").strip() or label["id"]
+            ha.update_label(
+                label_id=resolved_label_id,
+                name=label["name"],
+                icon=label.get("icon"),
+                color=label.get("color"),
+            )
+            updated += 1
+
+    if version_int is not None:
+        state["applied_label_catalog_version"] = version_int
+    state["last_label_catalog_sync_at"] = int(time.time())
+    save_device_state(state)
+    log.ok(
+        f"Label catalog synced: {len(desired_labels)} desired, {created} created, {updated} updated."
+    )
+    return created > 0 or updated > 0
+
+
 def _run_sync_inventory(
     *,
     force_full: bool = False,
@@ -2279,6 +2430,10 @@ def _run_sync_inventory(
             if not settings.HAUSIE_CLOUD_URL:
                 raise RuntimeError("HAUSIE_CLOUD_URL es requerido para generar assets en cloud.")
             ha = HAClient(ha_url_ws=settings.HA_WS_URL, ha_url_rest=settings.HA_REST_URL, token=settings.HA_TOKEN)
+            try:
+                _sync_label_catalog_from_cloud(ha, settings, log, force=True)
+            except Exception as exc:
+                log.warn(f"Label catalog sync skipped before inventory refresh: {exc}")
             ha.fetch_all(include_users=True)
             raw = json.loads(Path(ha.raw_file).read_text(encoding="utf-8"))
             labels = ha.fetch_labels()
@@ -2430,6 +2585,10 @@ def _run_create_base(
             if not settings.HAUSIE_CLOUD_URL:
                 raise RuntimeError("HAUSIE_CLOUD_URL es requerido para generar assets en cloud.")
             ha = HAClient(ha_url_ws=settings.HA_WS_URL, ha_url_rest=settings.HA_REST_URL, token=settings.HA_TOKEN)
+            try:
+                _sync_label_catalog_from_cloud(ha, settings, log, force=True)
+            except Exception as exc:
+                log.warn(f"Label catalog sync skipped before base rebuild: {exc}")
             log.start("Fetching Home Assistant snapshot.")
             ha.fetch_all(include_users=True)
             raw = json.loads(Path(ha.raw_file).read_text(encoding="utf-8"))
@@ -4223,7 +4382,7 @@ class _AddonHandler(BaseHTTPRequestHandler):
             self._send_json(200, _pairing_state_payload())
             return
         if path in {"", "/"}:
-            log_path = os.getenv("HAUSIE_LOG_FILE", "/data/hausie_addon.log")
+            log_path = "/data/hausie_addon.log"
             try:
                 text = Path(log_path).read_text(encoding="utf-8")
                 lines = text.splitlines()[-300:]

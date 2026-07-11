@@ -47,11 +47,6 @@ export PI_HA_CONFIG_DIR="${PI_HA_CONFIG_DIR:-/homeassistant}"
 export PI_DASHBOARD_DIR="${PI_DASHBOARD_DIR:-/homeassistant/dashboards}"
 export PI_CONFIG_PATH="${PI_CONFIG_PATH:-/homeassistant/configuration.yaml}"
 
-export HAUSIE_LOG_TO_STDOUT="true"
-export TEST_LOG_CLEAR_ON_START="true"
-
-export HAUSIE_LOG_FILE=""
-
 export PLAYWRIGHT_BROWSERS_PATH="/data/playwright"
 mkdir -p "$PLAYWRIGHT_BROWSERS_PATH"
 

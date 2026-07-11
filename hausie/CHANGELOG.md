@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.62
+
+- Remove advanced log and Tailscale management fields from the add-on user-facing options so end users no longer configure internal support settings manually.
+- Keep Hausie logs in the internal `/data/hausie_addon.log` file with built-in rotation, without clearing the log on startup.
+- Autodetect the Tailscale add-on slug from Supervisor and always let Hausie manage Tailscale for remote support.
+
+## 0.2.61
+
+- Add label catalog sync from Hausie Cloud into Home Assistant so labels can be created and updated centrally and applied on the next heartbeat.
+- Force label catalog sync before `Refresh Hausie`, `Repair Hausie`, and base rebuild flows so regenerated helpers and dashboards use the latest labels immediately.
+
 ## 0.2.60
 
 - Add a mobile-first local ZHA pairing wizard in the add-on ingress UI so plan 2+ homes can start pairing, wait for devices to finish configuring, assign room and labels, and refresh Hausie from the Raspberry Pi.

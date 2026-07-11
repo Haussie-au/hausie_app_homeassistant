@@ -104,6 +104,13 @@ class CloudClient:
             raise RuntimeError(f"Cloud help-messages failed {resp.status_code}: {resp.text}")
         return resp.json() if resp.content else {}
 
+    def request_label_catalog(self) -> dict:
+        url = f"{self.base_url}/api/device/label-catalog"
+        resp = requests.get(url, headers=self.headers, timeout=self.timeout_s)
+        if resp.status_code // 100 != 2:
+            raise RuntimeError(f"Cloud label-catalog failed {resp.status_code}: {resp.text}")
+        return resp.json() if resp.content else {}
+
     def has_valid_device_credentials(self) -> bool:
         url = f"{self.base_url}/api/device/subscription-status"
         resp = requests.get(url, headers=self.headers, timeout=self.timeout_s)

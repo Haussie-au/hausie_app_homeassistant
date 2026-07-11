@@ -6,28 +6,14 @@ import os
 import time
 from pathlib import Path
 
-_LOG_FILE = os.getenv("HAUSIE_LOG_FILE", "").strip()
-_LOG_MAX = int(os.getenv("HAUSIE_LOG_MAX_BYTES", "1048576"))
-_CLEAR_ON_START = os.getenv("TEST_LOG_CLEAR_ON_START", "").strip().lower() in {"1", "true", "yes"}
-_LOG_STDOUT = os.getenv("HAUSIE_LOG_TO_STDOUT", "true").strip().lower() not in {"0", "false", "no"}
-
-
-def _maybe_clear_log() -> None:
-    if not _CLEAR_ON_START or not _LOG_FILE:
-        return
-    try:
-        path = Path(_LOG_FILE)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text("", encoding="utf-8")
-    except Exception:
-        pass
+_LOG_FILE = Path("/data/hausie_addon.log")
+_LOG_MAX = 1048576
+_LOG_STDOUT = False
 
 
 def _append_log(line: str) -> None:
-    if not _LOG_FILE:
-        return
     try:
-        path = Path(_LOG_FILE)
+        path = _LOG_FILE
         path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, "a", encoding="utf-8") as f:
             f.write(line + "\n")
@@ -101,6 +87,3 @@ class FlowLogger:
 
 def get_logger(category: str) -> FlowLogger:
     return FlowLogger(category=category)
-
-
-_maybe_clear_log()
