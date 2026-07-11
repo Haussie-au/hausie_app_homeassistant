@@ -1,7 +1,7 @@
 import os
 from pathlib import Path
 
-from .core.device_state import resolve_device_credentials
+from .core.device_state import resolve_device_credentials, resolve_ha_runtime_credentials
 
 HOME_ASSISTANT_CONFIG_DIR = "/homeassistant"
 
@@ -21,11 +21,9 @@ class Settings:
         default_rest = "http://homeassistant:8123/api"
         self.HA_WS_URL = os.getenv("HA_WS_URL", default_ws)
         self.HA_REST_URL = os.getenv("HA_REST_URL", default_rest)
-        self.HA_TOKEN = os.getenv("HA_TOKEN") or _read_secret_file(os.getenv("HA_TOKEN_FILE"))
+        self.HA_TOKEN, self.HA_UI_USERNAME, self.HA_UI_PASSWORD = resolve_ha_runtime_credentials()
         if not self.HA_TOKEN:
             raise RuntimeError("Falta HA_TOKEN (o HA_TOKEN_FILE).")
-        self.HA_UI_USERNAME = os.getenv("HA_UI_USERNAME")
-        self.HA_UI_PASSWORD = os.getenv("HA_UI_PASSWORD")
         self.PLAYWRIGHT_STORAGE_STATE = os.getenv("PLAYWRIGHT_STORAGE_STATE")
         self.HAUSIE_CLOUD_URL = os.getenv("HAUSIE_CLOUD_URL", "").strip() or None
         self.HAUSIE_CLOUD_TOKEN = os.getenv("HAUSIE_CLOUD_TOKEN") or _read_secret_file(

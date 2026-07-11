@@ -9,6 +9,7 @@ import tempfile
 import threading
 import time
 import hashlib
+import html
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Any
@@ -29,7 +30,11 @@ from .core.managers.config_manager import ConfigManager
 from .core.managers.help_message_manager import HelpMessageManager
 from .core.utils.naming import slugify
 from .core.device_state import (
+    HAUSIE_SUPPORT_USERNAME,
+    migrate_ha_runtime_credentials_from_env,
+    persist_ha_runtime_credentials,
     resolve_device_credentials,
+    resolve_ha_runtime_credentials,
     persist_device_credentials,
     resolve_state_path,
     load_device_state,
@@ -1095,6 +1100,20 @@ def _supervisor_request(method: str, path: str) -> dict[str, Any]:
 
 
 def _resolve_pairing_ingress_path() -> str:
+    ingress_base = _resolve_self_ingress_base()
+    if ingress_base:
+        return f"{ingress_base}/pairing"
+    return "/config-dashboard/new-devices"
+
+
+def _resolve_credentials_ingress_path() -> str:
+    ingress_base = _resolve_self_ingress_base()
+    if ingress_base:
+        return f"{ingress_base}/credentials"
+    return "/config/app/c5bb2897_hausie/ingress/credentials"
+
+
+def _resolve_self_ingress_base() -> str:
     data = _supervisor_request("GET", "/addons/self/info")
     body = data.get("data") if isinstance(data.get("data"), dict) else data
     ingress_base = ""
@@ -1105,9 +1124,7 @@ def _resolve_pairing_ingress_path() -> str:
             or body.get("ingress_path")
             or ""
         ).strip()
-    if ingress_base:
-        return f"{ingress_base.rstrip('/')}/pairing"
-    return "/config-dashboard/new-devices"
+    return ingress_base.rstrip("/")
 
 
 def _autodetect_addon_slug(*keywords: str) -> str | None:
@@ -1170,6 +1187,179 @@ def _patch_add_device_shortcut(log) -> None:
         log.ok(f"Patched Add Device shortcut to {target_path}.")
 
 
+def _ha_credentials_status_payload() -> dict[str, Any]:
+    token, username, password = resolve_ha_runtime_credentials()
+    missing_fields: list[str] = []
+    if not token:
+        missing_fields.append("ha_token")
+    if not password:
+        missing_fields.append("support_password")
+    return {
+        "has_token": bool(token),
+        "has_support_password": bool(password),
+        "support_username": username or HAUSIE_SUPPORT_USERNAME,
+        "missing_fields": missing_fields,
+        "setup_required": bool(missing_fields),
+    }
+
+
+def _credentials_require_setup() -> bool:
+    return bool(_ha_credentials_status_payload()["setup_required"])
+
+
+def _build_credentials_shortcut_card(target_path: str) -> dict[str, Any]:
+    return {
+        "show_name": True,
+        "show_icon": True,
+        "type": "button",
+        "icon": "mdi:key-chain-variant",
+        "grid_options": {"columns": 12, "rows": 2},
+        "name": "Set Hausie credentials",
+        "tap_action": {
+            "action": "url",
+            "url_path": target_path,
+        },
+    }
+
+
+def _patch_credentials_shortcut(log) -> None:
+    dashboard_path = resolve_config_dashboard_path()
+    if not dashboard_path.exists():
+        return
+    try:
+        doc = yaml.safe_load(dashboard_path.read_text(encoding="utf-8")) or {}
+    except Exception as exc:
+        log.warn(f"Credentials shortcut patch skipped: {exc}")
+        return
+    if not isinstance(doc, dict):
+        return
+
+    target_path = _resolve_credentials_ingress_path()
+    desired_card = _build_credentials_shortcut_card(target_path)
+    needs_setup = _credentials_require_setup()
+    updated = False
+
+    for view in doc.get("views") or []:
+        if not isinstance(view, dict) or str(view.get("path") or "").strip() != "main":
+            continue
+        target_cards: list[dict[str, Any]] | None = None
+        for section in view.get("sections") or []:
+            if not isinstance(section, dict):
+                continue
+            cards = section.get("cards") or []
+            if any(isinstance(card, dict) and str(card.get("name") or "").strip() == "Refresh Hausie" for card in cards):
+                target_cards = cards
+                break
+        if target_cards is None:
+            continue
+
+        existing_index = next(
+            (
+                idx
+                for idx, card in enumerate(target_cards)
+                if isinstance(card, dict) and str(card.get("name") or "").strip() == "Set Hausie credentials"
+            ),
+            None,
+        )
+
+        if needs_setup:
+            if existing_index is None:
+                refresh_index = next(
+                    (
+                        idx
+                        for idx, card in enumerate(target_cards)
+                        if isinstance(card, dict) and str(card.get("name") or "").strip() == "Refresh Hausie"
+                    ),
+                    0,
+                )
+                target_cards.insert(refresh_index, desired_card)
+                updated = True
+            elif target_cards[existing_index] != desired_card:
+                target_cards[existing_index] = desired_card
+                updated = True
+        elif existing_index is not None:
+            target_cards.pop(existing_index)
+            updated = True
+
+    if updated:
+        dashboard_path.write_text(yaml.safe_dump(doc, sort_keys=False, allow_unicode=True), encoding="utf-8")
+        action = "added" if needs_setup else "removed"
+        log.ok(f"Credentials shortcut {action} in config dashboard.")
+
+
+def _save_ha_credentials(payload: dict[str, Any]) -> dict[str, Any]:
+    log = get_logger("credentials")
+    requested_token = str(payload.get("ha_token") or payload.get("token") or "").strip()
+    requested_password = str(payload.get("support_password") or payload.get("ha_ui_password") or "").strip()
+    current_token, _current_username, current_password = resolve_ha_runtime_credentials()
+
+    token_to_use = requested_token or current_token
+    password_to_use = requested_password or current_password
+    if not token_to_use:
+        raise ValueError("Home Assistant token is required.")
+    if not password_to_use:
+        raise ValueError("Support user password is required.")
+
+    persist_ha_runtime_credentials(
+        ha_token=requested_token or None,
+        ha_ui_username=HAUSIE_SUPPORT_USERNAME,
+        ha_ui_password=requested_password or None,
+    )
+
+    os.environ["HA_TOKEN"] = token_to_use
+    os.environ["HA_UI_USERNAME"] = HAUSIE_SUPPORT_USERNAME
+    os.environ["HA_UI_PASSWORD"] = password_to_use
+
+    ha = _resolve_ha_client()
+    if ha:
+        try:
+            try:
+                ha.delete_auth_user_by_username(HAUSIE_SUPPORT_USERNAME)
+            except Exception:
+                pass
+            ha.create_auth_user(
+                name="Hausie Support User",
+                username=HAUSIE_SUPPORT_USERNAME,
+                password=password_to_use,
+                is_admin=True,
+                local_only=True,
+            )
+            log.ok(f"Support user refreshed: {HAUSIE_SUPPORT_USERNAME}")
+        except Exception as exc:
+            log.warn(f"Support user refresh skipped: {exc}")
+
+    try:
+        _sync_local_config()
+    except Exception as exc:
+        log.warn(f"Config dashboard refresh skipped after credentials save: {exc}")
+
+    if _MQTT_LISTENER is None:
+        try:
+            _start_mqtt_listener()
+        except Exception:
+            pass
+    if _SUPPORT_MANAGER is None:
+        try:
+            _start_remote_support_manager()
+        except Exception:
+            pass
+    if _HEARTBEAT is None:
+        try:
+            _start_heartbeat()
+        except Exception:
+            pass
+    try:
+        _start_license_monitor()
+    except Exception:
+        pass
+    try:
+        _start_inventory_monitor()
+    except Exception:
+        pass
+
+    return _ha_credentials_status_payload()
+
+
 def _sync_local_config() -> None:
     if os.getenv("HAUSIE_SYNC_CONFIG_ON_START", "true").strip().lower() in {"0", "false", "no"}:
         return
@@ -1185,6 +1375,7 @@ def _sync_local_config() -> None:
             require_remote=False,
         )
         manager.sync_config_dashboard()
+        _patch_credentials_shortcut(get_logger("config"))
         _patch_add_device_shortcut(get_logger("config"))
         get_logger("config").ok("configuration.yaml synced (local).")
     except Exception as exc:
@@ -1204,7 +1395,7 @@ def _sync_local_config() -> None:
 
 
 def _resolve_ha_client() -> HAClient | None:
-    token = os.getenv("HA_TOKEN") or _read_secret_file(os.getenv("HA_TOKEN_FILE"))
+    token, _username, _password = resolve_ha_runtime_credentials()
     if not token:
         return None
     ha_ws_url = os.getenv("HA_WS_URL", "ws://homeassistant:8123/api/websocket")
@@ -2517,6 +2708,7 @@ def _run_sync_inventory(
                 log.warn("UI update skipped: cloud response missing 'ui' payload.")
             _reload_services(ha, log)
             _reload_browser_frontends(ha, log)
+            _patch_credentials_shortcut(log)
             _patch_add_device_shortcut(log)
             _sync_voice_exposure(ha, response if isinstance(response, dict) else None, log)
             _apply_plan_badge(ha, response.get("plan_badge") if isinstance(response, dict) else None)
@@ -2816,6 +3008,7 @@ def _run_create_test() -> None:
                 require_remote=False,
             )
             config.sync_config_dashboard()
+        _patch_credentials_shortcut(log)
         log.start("Reloading Home Assistant services.")
         _reload_services(ha, log)
         _apply_plan_badge(ha, response.get("plan_badge") if isinstance(response, dict) else None)
@@ -3450,8 +3643,8 @@ def _confirm_pairing_device(payload: dict[str, Any]) -> dict[str, Any]:
     )
     applied_labels = _update_device_labels(
         base_url=ha.ha_url_rest.rsplit("/api", 1)[0],
-        username=os.getenv("HA_UI_USERNAME", ""),
-        password=os.getenv("HA_UI_PASSWORD", ""),
+        username=resolve_ha_runtime_credentials()[1] or "",
+        password=resolve_ha_runtime_credentials()[2] or "",
         device_id=resolved_device_id,
         labels=normalized_labels,
     )
@@ -3910,6 +4103,258 @@ def _render_pairing_html() -> str:
 </html>"""
 
 
+def _render_credentials_html() -> str:
+    status = _ha_credentials_status_payload()
+    support_username = html.escape(str(status.get("support_username") or HAUSIE_SUPPORT_USERNAME))
+    status_json = json.dumps(status)
+    return f"""<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <title>Hausie credentials</title>
+    <style>
+      :root {{
+        color-scheme: dark;
+        --bg: #0b1220;
+        --panel: #121a2b;
+        --panel-2: #18233a;
+        --text: #f4f7fb;
+        --muted: #9fb0c8;
+        --accent: #46c2ff;
+        --danger: #ff7b7b;
+        --ok: #49d18d;
+        --border: rgba(255,255,255,0.09);
+      }}
+      * {{ box-sizing: border-box; }}
+      body {{
+        margin: 0;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: radial-gradient(circle at top, #12203a 0%, var(--bg) 65%);
+        color: var(--text);
+        min-height: 100vh;
+      }}
+      .shell {{
+        max-width: 760px;
+        margin: 0 auto;
+        padding: 24px 16px 40px;
+      }}
+      .hero {{
+        background: rgba(15, 23, 42, 0.84);
+        border: 1px solid var(--border);
+        border-radius: 24px;
+        padding: 22px;
+        box-shadow: 0 24px 64px rgba(0, 0, 0, 0.34);
+      }}
+      h1 {{
+        margin: 0 0 10px;
+        font-size: clamp(28px, 5vw, 40px);
+      }}
+      p {{
+        margin: 0;
+        color: var(--muted);
+        line-height: 1.55;
+      }}
+      .grid {{
+        display: grid;
+        gap: 14px;
+        margin-top: 18px;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      }}
+      .stat, form {{
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 18px;
+      }}
+      .stat {{
+        padding: 16px;
+      }}
+      .label {{
+        color: var(--muted);
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+      }}
+      .value {{
+        margin-top: 8px;
+        font-size: 18px;
+        font-weight: 700;
+      }}
+      .ok {{ color: var(--ok); }}
+      .bad {{ color: var(--danger); }}
+      form {{
+        margin-top: 18px;
+        padding: 18px;
+        display: grid;
+        gap: 16px;
+      }}
+      .field {{
+        display: grid;
+        gap: 8px;
+      }}
+      .field label {{
+        font-size: 14px;
+        font-weight: 600;
+      }}
+      .field small {{
+        color: var(--muted);
+      }}
+      input {{
+        width: 100%;
+        border-radius: 14px;
+        border: 1px solid var(--border);
+        background: var(--panel-2);
+        color: var(--text);
+        padding: 14px 16px;
+        font-size: 16px;
+      }}
+      .button-row {{
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+      }}
+      button, .link-btn {{
+        border: 0;
+        border-radius: 14px;
+        padding: 14px 18px;
+        font-size: 16px;
+        font-weight: 700;
+        cursor: pointer;
+        text-decoration: none;
+      }}
+      button {{
+        background: var(--accent);
+        color: #07111f;
+      }}
+      .link-btn {{
+        background: transparent;
+        color: var(--text);
+        border: 1px solid var(--border);
+      }}
+      .message {{
+        margin-top: 14px;
+        border-radius: 14px;
+        padding: 14px 16px;
+        display: none;
+      }}
+      .message.show {{ display: block; }}
+      .message.error {{
+        background: rgba(255,123,123,0.12);
+        border: 1px solid rgba(255,123,123,0.35);
+      }}
+      .message.success {{
+        background: rgba(73,209,141,0.12);
+        border: 1px solid rgba(73,209,141,0.35);
+      }}
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <section class="hero">
+        <h1>Hausie credentials</h1>
+        <p>Save the Home Assistant token and the password for the local support user used by Hausie for WebSocket access and UI automation. The support username is fixed to <strong>{support_username}</strong>.</p>
+
+        <div class="grid">
+          <div class="stat">
+            <div class="label">Home Assistant token</div>
+            <div class="value" id="tokenStatus"></div>
+          </div>
+          <div class="stat">
+            <div class="label">Support password</div>
+            <div class="value" id="passwordStatus"></div>
+          </div>
+          <div class="stat">
+            <div class="label">Support user</div>
+            <div class="value">{support_username}</div>
+          </div>
+        </div>
+
+        <form id="credentialsForm">
+          <div class="field">
+            <label for="haToken">Home Assistant token</label>
+            <input id="haToken" name="haToken" type="password" autocomplete="off" placeholder="Paste a long-lived access token"/>
+            <small>Leave blank to keep the current token if one is already saved.</small>
+          </div>
+          <div class="field">
+            <label for="supportPassword">Support user password</label>
+            <input id="supportPassword" name="supportPassword" type="password" autocomplete="new-password" placeholder="Password for {support_username}"/>
+            <small>Leave blank to keep the current password if one is already saved.</small>
+          </div>
+          <div class="button-row">
+            <button id="saveBtn" type="submit">Save credentials</button>
+            <a class="link-btn" href="/config-dashboard/main">Back to config</a>
+          </div>
+        </form>
+        <div class="message" id="messageBox"></div>
+      </section>
+    </div>
+    <script>
+      const initialStatus = {status_json};
+      const messageBox = document.getElementById("messageBox");
+      const saveBtn = document.getElementById("saveBtn");
+      const tokenStatus = document.getElementById("tokenStatus");
+      const passwordStatus = document.getElementById("passwordStatus");
+
+      function renderStatus(status) {{
+        tokenStatus.textContent = status.has_token ? "Configured" : "Missing";
+        tokenStatus.className = `value ${{status.has_token ? "ok" : "bad"}}`;
+        passwordStatus.textContent = status.has_support_password ? "Configured" : "Missing";
+        passwordStatus.className = `value ${{status.has_support_password ? "ok" : "bad"}}`;
+      }}
+
+      async function request(path, options = {{}}) {{
+        const response = await fetch(path, {{
+          headers: {{
+            "Content-Type": "application/json",
+            ...(options.headers || {{}})
+          }},
+          ...options
+        }});
+        const payload = await response.json().catch(() => ({{}}));
+        if (!response.ok) {{
+          throw new Error(payload.error || `Request failed (${{response.status}})`);
+        }}
+        return payload;
+      }}
+
+      function showMessage(kind, text) {{
+        messageBox.className = `message show ${{kind}}`;
+        messageBox.textContent = text;
+      }}
+
+      document.getElementById("credentialsForm").addEventListener("submit", async (event) => {{
+        event.preventDefault();
+        const haToken = document.getElementById("haToken").value.trim();
+        const supportPassword = document.getElementById("supportPassword").value;
+        try {{
+          saveBtn.disabled = true;
+          const payload = await request("/credentials", {{
+            method: "POST",
+            body: JSON.stringify({{
+              ha_token: haToken,
+              support_password: supportPassword
+            }})
+          }});
+          renderStatus(payload.status || initialStatus);
+          showMessage("success", "Credentials saved.");
+          if (!(payload.status || {{}}).setup_required) {{
+            setTimeout(() => {{
+              window.location.href = "/config-dashboard/main";
+            }}, 700);
+          }}
+        }} catch (error) {{
+          showMessage("error", error.message);
+        }} finally {{
+          saveBtn.disabled = false;
+        }}
+      }});
+
+      renderStatus(initialStatus);
+    </script>
+  </body>
+</html>"""
+
+
 class _AddonHandler(BaseHTTPRequestHandler):
     def _send_json(self, code: int, payload: dict[str, Any]) -> None:
         data = json.dumps(payload).encode("utf-8")
@@ -3986,6 +4431,25 @@ class _AddonHandler(BaseHTTPRequestHandler):
                 self._send_json(500, {"error": str(exc)})
                 return
             self._send_json(200, result)
+            return
+
+        if path == "/credentials":
+            length = int(self.headers.get("Content-Length", 0))
+            raw = self.rfile.read(length) if length else b"{}"
+            try:
+                payload = json.loads(raw.decode("utf-8") or "{}")
+            except json.JSONDecodeError:
+                self._send_json(400, {"error": "Invalid JSON"})
+                return
+            try:
+                status = _save_ha_credentials(payload if isinstance(payload, dict) else {})
+            except ValueError as exc:
+                self._send_json(400, {"error": str(exc)})
+                return
+            except Exception as exc:
+                self._send_json(500, {"error": str(exc)})
+                return
+            self._send_json(200, {"ok": True, "status": status})
             return
 
         if path == "/new_device":
@@ -4105,8 +4569,8 @@ class _AddonHandler(BaseHTTPRequestHandler):
                     base_url = ha.ha_url_rest.rsplit("/api", 1)[0]
                     applied_labels = _update_device_labels(
                         base_url=base_url,
-                        username=os.getenv("HA_UI_USERNAME", ""),
-                        password=os.getenv("HA_UI_PASSWORD", ""),
+                        username=resolve_ha_runtime_credentials()[1] or "",
+                        password=resolve_ha_runtime_credentials()[2] or "",
                         device_id=resolved_device_id,
                         labels=requested_labels,
                     )
@@ -4381,6 +4845,12 @@ class _AddonHandler(BaseHTTPRequestHandler):
         if path == "/pairing":
             self._send_text(200, _render_pairing_html(), "text/html; charset=utf-8")
             return
+        if path == "/credentials":
+            self._send_text(200, _render_credentials_html(), "text/html; charset=utf-8")
+            return
+        if path == "/credentials/status":
+            self._send_json(200, _ha_credentials_status_payload())
+            return
         if path == "/pairing/status":
             self._send_json(200, _pairing_state_payload())
             return
@@ -4424,6 +4894,7 @@ def run(host: str = "0.0.0.0", port: int = 8000) -> None:
     log = get_logger("addon")
     global _ACTIVE_SERVER, _SHUTDOWN_REQUESTED
     log.start("Addon starting.")
+    migrate_ha_runtime_credentials_from_env()
     server = HTTPServer((host, port), _AddonHandler)
     _ACTIVE_SERVER = server
     _SHUTDOWN_REQUESTED = False

@@ -5,6 +5,8 @@ import os
 from pathlib import Path
 from typing import Tuple, Optional
 
+HAUSIE_SUPPORT_USERNAME = "hausie_support_user"
+
 
 def _read_secret_file(path: str | None) -> str | None:
     if not path:
@@ -64,3 +66,74 @@ def persist_device_credentials(
     if token:
         data["device_token"] = token
     save_device_state(data, path)
+
+
+def resolve_ha_runtime_credentials() -> Tuple[Optional[str], Optional[str], Optional[str]]:
+    token = os.getenv("HA_TOKEN") or _read_secret_file(os.getenv("HA_TOKEN_FILE"))
+    username = os.getenv("HA_UI_USERNAME") or None
+    password = os.getenv("HA_UI_PASSWORD") or _read_secret_file(os.getenv("HA_UI_PASSWORD_FILE"))
+
+    state = load_device_state()
+    if not token:
+        token = (state.get("ha_token") or "").strip() or None
+    if not username:
+        username = (
+            state.get("ha_ui_username")
+            or state.get("ha_support_username")
+            or ""
+        ).strip() or None
+    if not password:
+        password = (
+            state.get("ha_ui_password")
+            or state.get("ha_support_password")
+            or ""
+        ).strip() or None
+
+    if password and not username:
+        username = HAUSIE_SUPPORT_USERNAME
+    return token, username, password
+
+
+def persist_ha_runtime_credentials(
+    *,
+    ha_token: str | None = None,
+    ha_ui_username: str | None = None,
+    ha_ui_password: str | None = None,
+    path: Path | None = None,
+) -> None:
+    if ha_token is None and ha_ui_username is None and ha_ui_password is None:
+        return
+    data = load_device_state(path)
+    if ha_token is not None and str(ha_token).strip():
+        data["ha_token"] = str(ha_token).strip()
+    if ha_ui_username is not None and str(ha_ui_username).strip():
+        data["ha_ui_username"] = str(ha_ui_username).strip()
+    if ha_ui_password is not None and str(ha_ui_password).strip():
+        data["ha_ui_password"] = str(ha_ui_password).strip()
+    save_device_state(data, path)
+
+
+def migrate_ha_runtime_credentials_from_env(path: Path | None = None) -> bool:
+    env_token = os.getenv("HA_TOKEN") or _read_secret_file(os.getenv("HA_TOKEN_FILE"))
+    env_username = os.getenv("HA_UI_USERNAME") or None
+    env_password = os.getenv("HA_UI_PASSWORD") or _read_secret_file(os.getenv("HA_UI_PASSWORD_FILE"))
+    if not env_token and not env_password:
+        return False
+
+    data = load_device_state(path)
+    updated = False
+    if env_token and str(data.get("ha_token") or "").strip() != env_token.strip():
+        data["ha_token"] = env_token.strip()
+        updated = True
+    if env_password and str(data.get("ha_ui_password") or "").strip() != env_password.strip():
+        data["ha_ui_password"] = env_password.strip()
+        updated = True
+
+    resolved_username = (env_username or HAUSIE_SUPPORT_USERNAME).strip()
+    if env_password and str(data.get("ha_ui_username") or "").strip() != resolved_username:
+        data["ha_ui_username"] = resolved_username
+        updated = True
+
+    if updated:
+        save_device_state(data, path)
+    return updated

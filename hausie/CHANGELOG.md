@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.64
+
+- Add a local Hausie credentials screen inside the add-on ingress UI so the Home Assistant token and support-user password can be stored internally instead of relying only on add-on options.
+- Show a large `Set Hausie credentials` button in the configuration dashboard only while the required token or support password is missing, and hide it automatically after saving valid values.
+- Hardcode the Playwright support username to `hausie_support_user` for the new local credential flow and reuse saved credentials across refresh and repair flows.
+
 ## 0.2.63
 
 - Replace deprecated `armv7` add-on architecture metadata with `armhf` so Supervisor no longer warns while validating the store manifest.

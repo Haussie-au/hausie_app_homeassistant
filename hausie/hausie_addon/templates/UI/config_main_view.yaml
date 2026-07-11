@@ -44,6 +44,17 @@ sections:
       - show_name: true
         show_icon: true
         type: button
+        icon: mdi:key-chain-variant
+        grid_options:
+          columns: 12
+          rows: 2
+        name: Set Hausie credentials
+        tap_action:
+          action: url
+          url_path: /config/app/c5bb2897_hausie/ingress/credentials
+      - show_name: true
+        show_icon: true
+        type: button
         entity: input_button.core_sync_inventory
         grid_options:
           columns: 12
