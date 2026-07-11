@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.63
+
+- Replace deprecated `armv7` add-on architecture metadata with `armhf` so Supervisor no longer warns while validating the store manifest.
+- Shut the add-on HTTP server down cleanly on `SIGTERM` so Supervisor stops the app without reporting an unclean exit.
+
 ## 0.2.62
 
 - Remove advanced log and Tailscale management fields from the add-on user-facing options so end users no longer configure internal support settings manually.

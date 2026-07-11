@@ -4,6 +4,7 @@ import json
 import os
 import re
 import shutil
+import signal
 import tempfile
 import threading
 import time
@@ -52,6 +53,8 @@ from .constants import Labels
 from .settings import Settings
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
+_ACTIVE_SERVER: HTTPServer | None = None
+_SHUTDOWN_REQUESTED = False
 
 
 def _ha_restart_exception_is_expected(exc: Exception) -> bool:
@@ -4419,8 +4422,26 @@ class _AddonHandler(BaseHTTPRequestHandler):
 
 def run(host: str = "0.0.0.0", port: int = 8000) -> None:
     log = get_logger("addon")
+    global _ACTIVE_SERVER, _SHUTDOWN_REQUESTED
     log.start("Addon starting.")
     server = HTTPServer((host, port), _AddonHandler)
+    _ACTIVE_SERVER = server
+    _SHUTDOWN_REQUESTED = False
+
+    def _handle_signal(signum: int, _frame: Any) -> None:
+        global _SHUTDOWN_REQUESTED
+        if _SHUTDOWN_REQUESTED:
+            return
+        _SHUTDOWN_REQUESTED = True
+        signame = signal.Signals(signum).name
+        log.warn(f"Addon stopping ({signame}).")
+        threading.Thread(target=server.shutdown, daemon=True).start()
+
+    previous_sigterm = signal.getsignal(signal.SIGTERM)
+    previous_sigint = signal.getsignal(signal.SIGINT)
+    signal.signal(signal.SIGTERM, _handle_signal)
+    signal.signal(signal.SIGINT, _handle_signal)
+
     log.start(f"Listening on http://{host}:{port}")
     _auto_register_from_pairing_code()
     _start_mqtt_listener()
@@ -4438,12 +4459,15 @@ def run(host: str = "0.0.0.0", port: int = 8000) -> None:
     except KeyboardInterrupt:
         log.warn("Addon stopping (KeyboardInterrupt).")
     finally:
+        signal.signal(signal.SIGTERM, previous_sigterm)
+        signal.signal(signal.SIGINT, previous_sigint)
         _LICENSE_MONITOR_STOP.set()
         _INVENTORY_MONITOR_STOP.set()
         try:
             server.server_close()
         except Exception:
             pass
+        _ACTIVE_SERVER = None
         log.ok("Addon stopped.")
 
 
