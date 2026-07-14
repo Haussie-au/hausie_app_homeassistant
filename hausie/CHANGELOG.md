@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.69
+
+- Update generated Hausie App and ingress navigation paths to the definitive `5d76f103_hausie` Home Assistant add-on slug.
+
 ## 0.2.68
 
 - Replace the add-on icon with the Hausie teal brand mark.

@@ -1116,14 +1116,14 @@ def _resolve_credentials_ingress_path() -> str:
     ingress_base = _resolve_self_ingress_base()
     if ingress_base:
         return f"{ingress_base}/credentials"
-    return "/config/app/c5bb2897_hausie/ingress/credentials"
+    return "/config/app/5d76f103_hausie/ingress/credentials"
 
 
 def _resolve_setup_ingress_path() -> str:
     ingress_base = _resolve_self_ingress_base()
     if ingress_base:
         return f"{ingress_base}/setup"
-    return "/config/app/c5bb2897_hausie/ingress/setup"
+    return "/config/app/5d76f103_hausie/ingress/setup"
 
 
 def _resolve_self_ingress_base() -> str:

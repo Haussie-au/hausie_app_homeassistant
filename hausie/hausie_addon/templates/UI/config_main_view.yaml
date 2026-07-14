@@ -51,7 +51,7 @@ sections:
         name: Set Hausie credentials
         tap_action:
           action: url
-          url_path: /config/app/c5bb2897_hausie/ingress/credentials
+          url_path: /config/app/5d76f103_hausie/ingress/credentials
       - show_name: true
         show_icon: true
         type: button
@@ -283,7 +283,7 @@ sections:
         icon: mdi:home-assistant
         tap_action:
           action: url
-          url_path: /config/app/c5bb2897_hausie/info
+          url_path: /config/app/5d76f103_hausie/info
       - show_name: true
         show_icon: true
         type: button
