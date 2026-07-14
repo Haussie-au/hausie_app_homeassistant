@@ -4,6 +4,7 @@ from pathlib import Path
 from .core.device_state import resolve_device_credentials, resolve_ha_runtime_credentials
 
 HOME_ASSISTANT_CONFIG_DIR = "/homeassistant"
+DEFAULT_HAUSIE_CLOUD_URL = "https://api.hausiehome.com"
 
 
 def _read_secret_file(path: str | None) -> str | None:
@@ -25,7 +26,7 @@ class Settings:
         if not self.HA_TOKEN:
             raise RuntimeError("Falta HA_TOKEN (o HA_TOKEN_FILE).")
         self.PLAYWRIGHT_STORAGE_STATE = os.getenv("PLAYWRIGHT_STORAGE_STATE")
-        self.HAUSIE_CLOUD_URL = os.getenv("HAUSIE_CLOUD_URL", "").strip() or None
+        self.HAUSIE_CLOUD_URL = os.getenv("HAUSIE_CLOUD_URL", "").strip() or DEFAULT_HAUSIE_CLOUD_URL
         self.HAUSIE_CLOUD_TOKEN = os.getenv("HAUSIE_CLOUD_TOKEN") or _read_secret_file(
             os.getenv("HAUSIE_CLOUD_TOKEN_FILE")
         )

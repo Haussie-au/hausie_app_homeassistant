@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.2.68
+
+- Replace the add-on icon with the Hausie teal brand mark.
+
+## 0.2.67
+
+- Add a mobile-first local setup flow that saves missing Home Assistant credentials, pairs the Pi with a Hausie home, and runs the initial base and inventory generation from the add-on ingress UI.
+- Create a local Configuration bootstrap dashboard only when no Cloud-generated dashboard exists, so installers always have an entry point after restoring the base backup.
+
+## 0.2.66
+
+- Use `https://api.hausiehome.com` as the default Hausie Cloud endpoint for new installations and when no custom endpoint is configured.
+
+## 0.2.65
+
+- Stop registering or generating the internal Test dashboard in Home Assistant while keeping test helpers and automations available for development.
+
 ## 0.2.64
 
 - Add a local Hausie credentials screen inside the add-on ingress UI so the Home Assistant token and support-user password can be stored internally instead of relying only on add-on options.

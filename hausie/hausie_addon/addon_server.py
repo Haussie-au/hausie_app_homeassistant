@@ -55,7 +55,7 @@ from .orchestration.new_device_dashboard import (
     upsert_new_device_button,
 )
 from .constants import Labels
-from .settings import Settings
+from .settings import DEFAULT_HAUSIE_CLOUD_URL, Settings
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 _ACTIVE_SERVER: HTTPServer | None = None
@@ -444,6 +444,7 @@ _BASE_SCRIPT_KEEP_FILES = {
 _CONFIG_DASHBOARD_FILENAME = "hausie_configuration_dashboard.yaml"
 _TEST_DASHBOARD_FILENAME = "hausie_test_dashboard.yaml"
 _MAIN_DASHBOARD_FILENAME = "hausie_dashboard.yaml"
+_BOOTSTRAP_CONFIG_TEMPLATE_PATH = Path(__file__).resolve().parent / "templates" / "UI" / "config_bootstrap_dashboard.yaml"
 
 _PAIRING_LOCK = threading.Lock()
 _PAIRING_THREAD: threading.Thread | None = None
@@ -836,7 +837,7 @@ def _start_remote_support_manager() -> None:
     poll_s = int(os.getenv("HAUSIE_SUPPORT_POLL_SECONDS", "10"))
     public_keys = _load_public_keys()
     _device_id, token = resolve_device_credentials()
-    base = os.getenv("HAUSIE_CLOUD_URL", "").strip().rstrip("/")
+    base = os.getenv("HAUSIE_CLOUD_URL", "").strip().rstrip("/") or DEFAULT_HAUSIE_CLOUD_URL
     support_keys_url = os.getenv("HAUSIE_SUPPORT_KEYS_URL", "").strip()
     support_session_url = os.getenv("HAUSIE_SUPPORT_SESSION_URL", "").strip()
     if not support_keys_url and base:
@@ -873,38 +874,32 @@ def _send_heartbeat_now(_support_active: bool | None = None) -> None:
     threading.Thread(target=heartbeat.send_now, daemon=True).start()
 
 
-def _auto_register_from_pairing_code() -> None:
-    pairing_code = os.getenv("HAUSIE_PAIRING_CODE", "").strip()
+def _register_with_pairing_code(pairing_code: str) -> dict[str, str | bool]:
+    pairing_code = str(pairing_code or "").strip()
     if not pairing_code:
-        return
+        raise ValueError("Hausie pairing code is required.")
     log = get_logger("register")
     device_id, token = resolve_device_credentials()
-    base_url = os.getenv("HAUSIE_CLOUD_URL", "").strip()
-    if not base_url:
-        log.warn("Pairing skipped: HAUSIE_CLOUD_URL not set.")
-        return
+    base_url = os.getenv("HAUSIE_CLOUD_URL", "").strip() or DEFAULT_HAUSIE_CLOUD_URL
     if device_id and token:
         try:
             cloud = CloudClient(base_url=base_url, token=token, timeout_s=20)
             if cloud.has_valid_device_credentials():
                 log.ok(f"Pairing skipped: device already registered ({device_id}).")
-                return
+                return {"device_id": device_id, "paired": True, "already_paired": True}
             log.warn(f"Stored device credentials are no longer valid for {device_id}; relinking with pairing code.")
         except Exception as exc:
-            log.warn(f"Pairing validation failed: {exc}")
-            return
+            raise RuntimeError(f"Pairing validation failed: {exc}") from exc
     log.start("Registering add-on with pairing code.")
     try:
         cloud = CloudClient(base_url=base_url, timeout_s=20)
         response = cloud.register_device({"pairing_code": pairing_code})
     except Exception as exc:
-        log.warn(f"Pairing failed: {exc}")
-        return
+        raise RuntimeError(f"Pairing failed: {exc}") from exc
     device_id = str(response.get("hausie_device_id") or "").strip()
     token = str(response.get("device_token") or "").strip()
     if not device_id or not token:
-        log.warn("Pairing failed: missing device credentials in response.")
-        return
+        raise RuntimeError("Pairing failed: missing device credentials in response.")
     state_path = resolve_state_path()
     if state_path.exists():
         try:
@@ -915,6 +910,17 @@ def _auto_register_from_pairing_code() -> None:
     os.environ["HAUSIE_DEVICE_ID"] = device_id
     os.environ["HAUSIE_CLOUD_TOKEN"] = token
     log.ok(f"Pairing completed: {device_id}")
+    return {"device_id": device_id, "paired": True, "already_paired": False}
+
+
+def _auto_register_from_pairing_code() -> None:
+    pairing_code = os.getenv("HAUSIE_PAIRING_CODE", "").strip()
+    if not pairing_code:
+        return
+    try:
+        _register_with_pairing_code(pairing_code)
+    except Exception as exc:
+        get_logger("register").warn(str(exc))
 
 
 def _start_heartbeat() -> None:
@@ -930,7 +936,7 @@ def _start_heartbeat() -> None:
     if not device_id:
         get_logger("heartbeat").warn("Heartbeat disabled: HAUSIE_DEVICE_ID not set.")
         return
-    base = os.getenv("HAUSIE_CLOUD_URL", "").strip().rstrip("/")
+    base = os.getenv("HAUSIE_CLOUD_URL", "").strip().rstrip("/") or DEFAULT_HAUSIE_CLOUD_URL
     endpoint = os.getenv("HAUSIE_HEARTBEAT_URL", "").strip()
     if not endpoint:
         if not base:
@@ -1113,6 +1119,13 @@ def _resolve_credentials_ingress_path() -> str:
     return "/config/app/c5bb2897_hausie/ingress/credentials"
 
 
+def _resolve_setup_ingress_path() -> str:
+    ingress_base = _resolve_self_ingress_base()
+    if ingress_base:
+        return f"{ingress_base}/setup"
+    return "/config/app/c5bb2897_hausie/ingress/setup"
+
+
 def _resolve_self_ingress_base() -> str:
     data = _supervisor_request("GET", "/addons/self/info")
     body = data.get("data") if isinstance(data.get("data"), dict) else data
@@ -1200,6 +1213,63 @@ def _ha_credentials_status_payload() -> dict[str, Any]:
         "support_username": username or HAUSIE_SUPPORT_USERNAME,
         "missing_fields": missing_fields,
         "setup_required": bool(missing_fields),
+    }
+
+
+def _set_setup_progress(status: str, message: str, *, initialized: bool = False) -> None:
+    state = load_device_state()
+    device_id, _token = resolve_device_credentials()
+    state["bootstrap_setup"] = {
+        "status": status,
+        "message": message,
+        "updated_at": int(time.time()),
+        "initialized": bool(initialized),
+        "device_id": str(device_id or ""),
+    }
+    save_device_state(state)
+
+
+def _setup_status_payload() -> dict[str, Any]:
+    credentials = _ha_credentials_status_payload()
+    device_id, device_token = resolve_device_credentials()
+    paired = bool(device_id and device_token)
+    state = load_device_state()
+    setup_state = state.get("bootstrap_setup") if isinstance(state.get("bootstrap_setup"), dict) else {}
+    initialized = bool(
+        paired
+        and setup_state.get("initialized")
+        and str(setup_state.get("device_id") or "") == str(device_id or "")
+    )
+
+    if setup_state.get("status") == "initializing":
+        phase = "initializing"
+        message = str(setup_state.get("message") or "Initializing Hausie...")
+    elif setup_state.get("status") == "failed":
+        phase = "failed"
+        message = str(setup_state.get("message") or "Hausie initialization failed. Review the add-on logs and try again.")
+    elif not credentials["has_token"] or not credentials["has_support_password"]:
+        phase = "credentials"
+        message = "Enter the Home Assistant token and the Hausie support password."
+    elif not paired:
+        phase = "pairing"
+        message = "Enter the pairing code for this Hausie home."
+    elif initialized:
+        phase = "complete"
+        message = "Hausie is initialized for this home."
+    else:
+        phase = "ready"
+        message = "Ready to initialize Hausie."
+
+    return {
+        "credentials": credentials,
+        "has_token": credentials["has_token"],
+        "has_support_password": credentials["has_support_password"],
+        "paired": paired,
+        "device_id": str(device_id or ""),
+        "initialized": initialized,
+        "initializing": phase == "initializing",
+        "phase": phase,
+        "message": message,
     }
 
 
@@ -1375,6 +1445,7 @@ def _sync_local_config() -> None:
             require_remote=False,
         )
         manager.sync_config_dashboard()
+        _ensure_bootstrap_config_dashboard()
         _patch_credentials_shortcut(get_logger("config"))
         _patch_add_device_shortcut(get_logger("config"))
         get_logger("config").ok("configuration.yaml synced (local).")
@@ -1754,6 +1825,21 @@ def _sync_config_dashboard_from_pi(local_path: Path) -> None:
 
 def _ha_config_root() -> Path:
     return Path(os.getenv("PI_HA_CONFIG_DIR", "/homeassistant")).resolve()
+
+
+def _ensure_bootstrap_config_dashboard() -> bool:
+    """Create a local installer dashboard only when Cloud has not generated one yet."""
+    target = _ha_config_root() / "dashboards" / _CONFIG_DASHBOARD_FILENAME
+    if target.exists():
+        return False
+    if not _BOOTSTRAP_CONFIG_TEMPLATE_PATH.exists():
+        raise FileNotFoundError(f"Bootstrap dashboard template not found: {_BOOTSTRAP_CONFIG_TEMPLATE_PATH}")
+    content = _BOOTSTRAP_CONFIG_TEMPLATE_PATH.read_text(encoding="utf-8")
+    content = content.replace("__HAUSIE_SETUP_URL__", _resolve_setup_ingress_path())
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(content, encoding="utf-8")
+    get_logger("config").ok("Created local Hausie setup dashboard.")
+    return True
 
 
 def _collect_registry_automation_ids(root: Path) -> set[str]:
@@ -2856,6 +2942,26 @@ def _run_create_base(
             enabled = _turn_on_user_helpers(ha)
             if enabled:
                 log.ok(f"User helpers enabled: {enabled}.")
+
+
+def _run_initialize_hausie() -> None:
+    """Generate the first Hausie configuration after local credentials and Cloud pairing."""
+    log = get_logger("setup")
+    with _workflow_activity("Initializing Hausie", manage_lock=True):
+        with log.script("initialize_hausie"):
+            device_id, device_token = resolve_device_credentials()
+            if not device_id or not device_token:
+                raise RuntimeError("Pair this Home Assistant installation with Hausie before initializing.")
+            _set_setup_progress("initializing", "Creating Hausie configuration...")
+            try:
+                _run_create_base(force_full=True, manage_activity=False)
+                _set_setup_progress("initializing", "Creating dashboards and automations...")
+                _run_sync_inventory(force_full=True, manage_activity=False)
+            except Exception as exc:
+                _set_setup_progress("failed", str(exc))
+                raise
+            _set_setup_progress("complete", "Hausie initialization completed.", initialized=True)
+            log.ok("Hausie initialization completed.")
 
 
 def _run_restart_hausie() -> None:
@@ -4103,6 +4209,149 @@ def _render_pairing_html() -> str:
 </html>"""
 
 
+def _render_setup_html() -> str:
+    support_username = html.escape(HAUSIE_SUPPORT_USERNAME)
+    return """<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <title>Complete Hausie setup</title>
+    <style>
+      :root { color-scheme: dark; --bg:#07111f; --panel:#101d30; --card:#15253c; --text:#f4f7fb; --muted:#a8b7cb; --accent:#39c6f4; --ok:#52d68b; --warn:#ffd166; --danger:#ff7b7b; --border:rgba(255,255,255,.1); }
+      * { box-sizing:border-box; }
+      body { margin:0; min-height:100vh; color:var(--text); font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; background:radial-gradient(circle at 10% 0%,#17365a 0%,var(--bg) 57%); }
+      main { width:min(100%,720px); margin:0 auto; padding:20px 14px 36px; }
+      .hero,.panel { border:1px solid var(--border); border-radius:22px; background:rgba(16,29,48,.93); box-shadow:0 18px 42px rgba(0,0,0,.22); }
+      .hero { padding:22px; }
+      h1 { margin:0 0 8px; font-size:clamp(29px,9vw,42px); line-height:1.05; }
+      h2 { margin:0; font-size:19px; }
+      p { color:var(--muted); line-height:1.5; margin:0; }
+      .panel { margin-top:14px; padding:18px; }
+      .steps { display:grid; gap:10px; margin-top:16px; }
+      .step { display:flex; align-items:center; gap:12px; padding:13px; border-radius:14px; background:var(--card); }
+      .dot { width:12px; height:12px; border-radius:50%; background:var(--warn); flex:0 0 auto; }
+      .step.ok .dot { background:var(--ok); }
+      .step.running .dot { background:var(--accent); animation:pulse 1s infinite alternate; }
+      .step .copy { min-width:0; }
+      .step strong { display:block; font-size:14px; }
+      .step span { display:block; color:var(--muted); font-size:13px; margin-top:2px; overflow-wrap:anywhere; }
+      form { display:grid; gap:15px; margin-top:16px; }
+      label { display:grid; gap:7px; font-size:14px; font-weight:700; }
+      small { color:var(--muted); font-weight:400; line-height:1.35; }
+      input { min-height:48px; width:100%; border:1px solid var(--border); border-radius:13px; padding:12px 14px; background:#0a1728; color:var(--text); font-size:16px; }
+      button,a.button { display:inline-flex; width:100%; min-height:52px; align-items:center; justify-content:center; border:0; border-radius:14px; padding:13px 16px; background:var(--accent); color:#06131d; font-size:16px; font-weight:800; text-decoration:none; cursor:pointer; }
+      button:disabled { opacity:.58; cursor:wait; }
+      .secondary { margin-top:10px; background:transparent!important; border:1px solid var(--border)!important; color:var(--text)!important; }
+      .message { display:none; margin-top:14px; border-radius:13px; padding:12px 14px; line-height:1.45; }
+      .message.show { display:block; }
+      .message.error { background:rgba(255,123,123,.12); border:1px solid rgba(255,123,123,.38); }
+      .message.success { background:rgba(82,214,139,.12); border:1px solid rgba(82,214,139,.38); }
+      @keyframes pulse { from { opacity:.35; transform:scale(.82); } to { opacity:1; transform:scale(1.12); } }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section class="hero">
+        <h1>Complete Hausie setup</h1>
+        <p>Connect this Home Assistant installation to its Hausie home, then create the initial dashboards and automations.</p>
+        <div class="steps">
+          <div class="step" id="credentialsStep"><i class="dot"></i><div class="copy"><strong>Local credentials</strong><span id="credentialsText">Checking...</span></div></div>
+          <div class="step" id="pairingStep"><i class="dot"></i><div class="copy"><strong>Hausie pairing</strong><span id="pairingText">Checking...</span></div></div>
+          <div class="step" id="initializeStep"><i class="dot"></i><div class="copy"><strong>Initialize Hausie</strong><span id="initializeText">Checking...</span></div></div>
+        </div>
+      </section>
+      <section class="panel">
+        <h2>Installation details</h2>
+        <form id="setupForm">
+          <label>Home Assistant token
+            <input id="haToken" type="password" autocomplete="off" placeholder="Paste a long-lived access token"/>
+            <small>Leave blank only if it is already configured.</small>
+          </label>
+          <label>Hausie support password
+            <input id="supportPassword" type="password" autocomplete="new-password" placeholder="Password for __SUPPORT_USERNAME__"/>
+            <small>Used by the local Hausie support user. Leave blank only if already configured.</small>
+          </label>
+          <label>Hausie pairing code
+            <input id="pairingCode" type="password" autocomplete="off" placeholder="Code for this customer's Hausie home"/>
+            <small>Required only when this Pi has not been paired yet. It is not stored after registration.</small>
+          </label>
+          <button id="initializeButton" type="submit">Initialize Hausie</button>
+        </form>
+        <div id="message" class="message"></div>
+        <a id="openConfig" class="button secondary" href="/config-dashboard/main" hidden>Open Configuration</a>
+      </section>
+    </main>
+    <script>
+      const message = document.getElementById("message");
+      const initializeButton = document.getElementById("initializeButton");
+      const openConfig = document.getElementById("openConfig");
+      let currentStatus = null;
+
+      async function request(path, options = {}) {
+        const response = await fetch(path, { headers: { "Content-Type": "application/json", ...(options.headers || {}) }, ...options });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(payload.error || `Request failed (${response.status})`);
+        return payload;
+      }
+
+      function showMessage(kind, text) {
+        message.className = `message show ${kind}`;
+        message.textContent = text;
+      }
+
+      function setStep(id, complete, running, text) {
+        const element = document.getElementById(id);
+        element.classList.toggle("ok", complete);
+        element.classList.toggle("running", running);
+        element.querySelector("span").textContent = text;
+      }
+
+      function render(status) {
+        currentStatus = status;
+        const credentialsReady = status.has_token && status.has_support_password;
+        setStep("credentialsStep", credentialsReady, false, credentialsReady ? "Configured" : "Token and support password are required");
+        setStep("pairingStep", status.paired, false, status.paired ? `Paired as ${status.device_id}` : "Pairing code is required");
+        setStep("initializeStep", status.initialized, status.initializing, status.initialized ? "Completed" : status.message);
+        initializeButton.disabled = Boolean(status.initializing || status.initialized);
+        initializeButton.textContent = status.initializing ? "Initializing Hausie..." : status.initialized ? "Hausie initialized" : "Initialize Hausie";
+        openConfig.hidden = !status.initialized;
+        if (status.phase === "failed") showMessage("error", status.message);
+      }
+
+      async function refreshStatus() {
+        try { render(await request("/setup/status")); } catch (error) { showMessage("error", error.message); }
+      }
+
+      document.getElementById("setupForm").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        if (currentStatus?.initializing || currentStatus?.initialized) return;
+        try {
+          initializeButton.disabled = true;
+          const response = await request("/setup/initialize", {
+            method: "POST",
+            body: JSON.stringify({
+              ha_token: document.getElementById("haToken").value.trim(),
+              support_password: document.getElementById("supportPassword").value,
+              pairing_code: document.getElementById("pairingCode").value.trim()
+            })
+          });
+          document.getElementById("pairingCode").value = "";
+          showMessage("success", response.message || "Hausie initialization started.");
+          await refreshStatus();
+        } catch (error) {
+          showMessage("error", error.message);
+          initializeButton.disabled = false;
+        }
+      });
+
+      refreshStatus();
+      setInterval(refreshStatus, 2000);
+    </script>
+  </body>
+</html>""".replace("__SUPPORT_USERNAME__", support_username)
+
+
 def _render_credentials_html() -> str:
     status = _ha_credentials_status_payload()
     support_username = html.escape(str(status.get("support_username") or HAUSIE_SUPPORT_USERNAME))
@@ -4450,6 +4699,42 @@ class _AddonHandler(BaseHTTPRequestHandler):
                 self._send_json(500, {"error": str(exc)})
                 return
             self._send_json(200, {"ok": True, "status": status})
+            return
+
+        if path == "/setup/initialize":
+            length = int(self.headers.get("Content-Length", 0))
+            raw = self.rfile.read(length) if length else b"{}"
+            try:
+                payload = json.loads(raw.decode("utf-8") or "{}")
+            except json.JSONDecodeError:
+                self._send_json(400, {"error": "Invalid JSON"})
+                return
+            if not isinstance(payload, dict):
+                self._send_json(400, {"error": "JSON body must be an object"})
+                return
+            if _WORKFLOW_LOCK.locked():
+                self._send_json(409, {"error": "Another Hausie action is already in progress."})
+                return
+            try:
+                _save_ha_credentials(payload)
+                pairing_code = str(payload.get("pairing_code") or "").strip()
+                device_id, device_token = resolve_device_credentials()
+                if pairing_code:
+                    # A supplied code is an explicit installer request to pair or re-pair
+                    # this Home Assistant instance, even if older local credentials exist.
+                    _register_with_pairing_code(pairing_code)
+                elif not device_id or not device_token:
+                    raise ValueError("Hausie pairing code is required.")
+                _set_setup_progress("initializing", "Preparing Hausie initialization...")
+                _start_background_workflow("initialize_hausie", _run_initialize_hausie)
+            except ValueError as exc:
+                self._send_json(400, {"error": str(exc)})
+                return
+            except Exception as exc:
+                _set_setup_progress("failed", str(exc))
+                self._send_json(500, {"error": str(exc)})
+                return
+            self._send_json(202, {"ok": True, "message": "Hausie initialization started.", "status": _setup_status_payload()})
             return
 
         if path == "/new_device":
@@ -4842,6 +5127,12 @@ class _AddonHandler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         path = self.path.split("?", 1)[0].rstrip("/")
+        if path in {"", "/"}:
+            self._send_text(200, _render_setup_html(), "text/html; charset=utf-8")
+            return
+        if path == "/setup":
+            self._send_text(200, _render_setup_html(), "text/html; charset=utf-8")
+            return
         if path == "/pairing":
             self._send_text(200, _render_pairing_html(), "text/html; charset=utf-8")
             return
@@ -4851,10 +5142,13 @@ class _AddonHandler(BaseHTTPRequestHandler):
         if path == "/credentials/status":
             self._send_json(200, _ha_credentials_status_payload())
             return
+        if path == "/setup/status":
+            self._send_json(200, _setup_status_payload())
+            return
         if path == "/pairing/status":
             self._send_json(200, _pairing_state_payload())
             return
-        if path in {"", "/"}:
+        if path == "/logs":
             log_path = "/data/hausie_addon.log"
             try:
                 text = Path(log_path).read_text(encoding="utf-8")

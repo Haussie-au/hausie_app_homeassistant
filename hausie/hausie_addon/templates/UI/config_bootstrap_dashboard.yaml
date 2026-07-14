@@ -1,0 +1,29 @@
+title: Hausie
+views:
+  - type: sections
+    title: Configuration
+    path: main
+    icon: mdi:cog
+    max_columns: 2
+    sections:
+      - type: grid
+        cards:
+          - type: heading
+            heading: Complete Hausie setup
+            heading_style: title
+            icon: mdi:home-plus
+          - type: markdown
+            content: >-
+              Finish connecting this Home Assistant installation to Hausie before
+              adding devices. You will need a Home Assistant token, the password
+              for the Hausie support user, and the pairing code for this home.
+            text_only: true
+          - type: button
+            name: Open Hausie setup
+            icon: mdi:rocket-launch-outline
+            tap_action:
+              action: url
+              url_path: __HAUSIE_SETUP_URL__
+            grid_options:
+              columns: 12
+              rows: 2

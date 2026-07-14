@@ -131,6 +131,8 @@ class ConfigManager:
 
         dashboards.pop("config", None)
         dashboards.pop("hausie-dashboard", None)
+        # Retire the old development dashboard instead of exposing it in homes.
+        dashboards.pop("test-dashboard", None)
         dashboards["config-dashboard"] = {
             "mode": "yaml",
             "title": "Configuration",
@@ -146,13 +148,6 @@ class ConfigManager:
                 "show_in_sidebar": True,
                 "filename": "dashboards/hausie_dashboard.yaml",
             }
-        dashboards["test-dashboard"] = {
-            "mode": "yaml",
-            "title": "Test",
-            "icon": "mdi:flask",
-            "show_in_sidebar": True,
-            "filename": "dashboards/hausie_test_dashboard.yaml",
-        }
         lovelace["dashboards"] = dashboards
         doc["lovelace"] = lovelace
         if "input_text" not in doc:
