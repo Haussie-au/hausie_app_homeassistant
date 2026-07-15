@@ -113,8 +113,9 @@ PY
 if ls "$PLAYWRIGHT_BROWSERS_PATH"/chromium-* >/dev/null 2>&1; then
   echo "Playwright browsers already present; skipping install."
 elif [ "$PLAYWRIGHT_MISSING" = "missing" ]; then
-  echo "Playwright browsers missing; installing Chromium."
-  python -m playwright install chromium || true
+  # Setup and API workflows work without a browser. Install lazily only for UI edits.
+  echo "Playwright browsers missing; installation deferred until a dashboard UI action needs it."
 fi
 
-python -m hausie_addon.addon_server
+echo "Starting Hausie add-on server."
+exec python -m hausie_addon.addon_server

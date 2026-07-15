@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.72
+
+- Do not block add-on startup while downloading Playwright browsers; install Chromium lazily only when a dashboard UI operation requires it.
+
 ## 0.2.71
 
 - Use stable Home Assistant app ingress routes in persistent dashboards instead of expiring Supervisor ingress tokens.
