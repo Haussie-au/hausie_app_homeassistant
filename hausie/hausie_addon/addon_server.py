@@ -1130,11 +1130,18 @@ def _resolve_credentials_ingress_path() -> str:
 
 
 def _resolve_setup_ingress_path() -> str:
-    return _resolve_hausie_app_path("ingress")
+    return _resolve_hausie_app_path("ingress/setup")
 
 
 def _resolve_hausie_app_info_path() -> str:
     return _resolve_hausie_app_path("info")
+
+
+def _normalize_ingress_path(value: str | None) -> str:
+    path = str(value or "").strip()
+    if not path.startswith("/") or "://" in path:
+        return ""
+    return path.rstrip("/")
 
 
 def _autodetect_addon_slug(*keywords: str) -> str | None:
@@ -3816,7 +3823,7 @@ def _confirm_pairing_device(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _render_pairing_html() -> str:
+def _render_pairing_html(ingress_path: str = "") -> str:
     return """<!doctype html>
 <html lang="en">
   <head>
@@ -4023,6 +4030,7 @@ def _render_pairing_html() -> str:
       </section>
     </main>
     <script>
+      const INGRESS_PATH = __INGRESS_PATH__;
       const state = {
         payload: null,
         selectedId: "",
@@ -4044,7 +4052,8 @@ def _render_pairing_html() -> str:
       const confirmBtn = document.getElementById("confirmBtn");
 
       async function request(path, options = {}) {
-        const response = await fetch(path, {
+        const requestPath = path.startsWith("/") ? path : "/" + path;
+        const response = await fetch(INGRESS_PATH + requestPath, {
           headers: { "Content-Type": "application/json" },
           ...options,
         });
@@ -4248,10 +4257,10 @@ def _render_pairing_html() -> str:
       setInterval(refreshStatus, 2000);
     </script>
   </body>
-</html>"""
+</html>""".replace("__INGRESS_PATH__", json.dumps(_normalize_ingress_path(ingress_path)))
 
 
-def _render_setup_html() -> str:
+def _render_setup_html(ingress_path: str = "") -> str:
     support_username = html.escape(HAUSIE_SUPPORT_USERNAME)
     return """<!doctype html>
 <html>
@@ -4325,13 +4334,15 @@ def _render_setup_html() -> str:
       </section>
     </main>
     <script>
+      const INGRESS_PATH = __INGRESS_PATH__;
       const message = document.getElementById("message");
       const initializeButton = document.getElementById("initializeButton");
       const openConfig = document.getElementById("openConfig");
       let currentStatus = null;
 
       async function request(path, options = {}) {
-        const response = await fetch(path, { headers: { "Content-Type": "application/json", ...(options.headers || {}) }, ...options });
+        const requestPath = path.startsWith("/") ? path : "/" + path;
+        const response = await fetch(INGRESS_PATH + requestPath, { headers: { "Content-Type": "application/json", ...(options.headers || {}) }, ...options });
         const payload = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(payload.error || `Request failed (${response.status})`);
         return payload;
@@ -4391,13 +4402,14 @@ def _render_setup_html() -> str:
       setInterval(refreshStatus, 2000);
     </script>
   </body>
-</html>""".replace("__SUPPORT_USERNAME__", support_username)
+</html>""".replace("__SUPPORT_USERNAME__", support_username).replace("__INGRESS_PATH__", json.dumps(_normalize_ingress_path(ingress_path)))
 
 
-def _render_credentials_html() -> str:
+def _render_credentials_html(ingress_path: str = "") -> str:
     status = _ha_credentials_status_payload()
     support_username = html.escape(str(status.get("support_username") or HAUSIE_SUPPORT_USERNAME))
     status_json = json.dumps(status)
+    ingress_path_json = json.dumps(_normalize_ingress_path(ingress_path))
     return f"""<!doctype html>
 <html>
   <head>
@@ -4580,6 +4592,7 @@ def _render_credentials_html() -> str:
       </section>
     </div>
     <script>
+      const INGRESS_PATH = {ingress_path_json};
       const initialStatus = {status_json};
       const messageBox = document.getElementById("messageBox");
       const saveBtn = document.getElementById("saveBtn");
@@ -4594,7 +4607,8 @@ def _render_credentials_html() -> str:
       }}
 
       async function request(path, options = {{}}) {{
-        const response = await fetch(path, {{
+        const requestPath = path.startsWith("/") ? path : "/" + path;
+        const response = await fetch(INGRESS_PATH + requestPath, {{
           headers: {{
             "Content-Type": "application/json",
             ...(options.headers || {{}})
@@ -4680,6 +4694,9 @@ class _AddonHandler(BaseHTTPRequestHandler):
         if not token:
             token = self.headers.get("X-API-Key", "").strip()
         return token == expected
+
+    def _ingress_path(self) -> str:
+        return _normalize_ingress_path(self.headers.get("X-Ingress-Path", ""))
 
     def do_POST(self) -> None:
         path = self.path.split("?", 1)[0].rstrip("/")
@@ -5170,16 +5187,16 @@ class _AddonHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         path = self.path.split("?", 1)[0].rstrip("/")
         if path in {"", "/"}:
-            self._send_text(200, _render_setup_html(), "text/html; charset=utf-8")
+            self._send_text(200, _render_setup_html(self._ingress_path()), "text/html; charset=utf-8")
             return
         if path == "/setup":
-            self._send_text(200, _render_setup_html(), "text/html; charset=utf-8")
+            self._send_text(200, _render_setup_html(self._ingress_path()), "text/html; charset=utf-8")
             return
         if path == "/pairing":
-            self._send_text(200, _render_pairing_html(), "text/html; charset=utf-8")
+            self._send_text(200, _render_pairing_html(self._ingress_path()), "text/html; charset=utf-8")
             return
         if path == "/credentials":
-            self._send_text(200, _render_credentials_html(), "text/html; charset=utf-8")
+            self._send_text(200, _render_credentials_html(self._ingress_path()), "text/html; charset=utf-8")
             return
         if path == "/credentials/status":
             self._send_json(200, _ha_credentials_status_payload())

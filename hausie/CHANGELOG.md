@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.74
+
+- Fix ingress setup, pairing, and credentials pages so their requests remain inside the Home Assistant ingress proxy.
+
 ## 0.2.73
 
 - Resolve the installed Hausie app slug from Supervisor and use it for generated app, setup, credentials, and pairing navigation paths.
