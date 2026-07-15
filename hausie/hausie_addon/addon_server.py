@@ -437,7 +437,7 @@ _CONFIG_DASHBOARD_FILENAME = "hausie_configuration_dashboard.yaml"
 _TEST_DASHBOARD_FILENAME = "hausie_test_dashboard.yaml"
 _MAIN_DASHBOARD_FILENAME = "hausie_dashboard.yaml"
 _BOOTSTRAP_CONFIG_TEMPLATE_PATH = Path(__file__).resolve().parent / "templates" / "UI" / "config_bootstrap_dashboard.yaml"
-_HAUSIE_APP_INGRESS_PATH = "/config/app/5d76f103_hausie/ingress"
+_SELF_ADDON_SLUG: str | None = None
 
 _PAIRING_LOCK = threading.Lock()
 _PAIRING_THREAD: threading.Thread | None = None
@@ -1098,16 +1098,43 @@ def _supervisor_request(method: str, path: str) -> dict[str, Any]:
     return payload if isinstance(payload, dict) else {}
 
 
+def _resolve_self_addon_slug() -> str:
+    """Return the Supervisor-assigned slug for this installed add-on."""
+    global _SELF_ADDON_SLUG
+    if _SELF_ADDON_SLUG:
+        return _SELF_ADDON_SLUG
+
+    data = _supervisor_request("GET", "/addons/self/info")
+    body = data.get("data") if isinstance(data.get("data"), dict) else data
+    candidate = str(body.get("slug") or "").strip() if isinstance(body, dict) else ""
+    if re.fullmatch(r"[a-z0-9][a-z0-9_-]*", candidate):
+        _SELF_ADDON_SLUG = candidate
+        return candidate
+
+    configured = str(os.getenv("HAUSIE_ADDON_SLUG") or "").strip()
+    if re.fullmatch(r"[a-z0-9][a-z0-9_-]*", configured):
+        return configured
+    return "hausie"
+
+
+def _resolve_hausie_app_path(suffix: str) -> str:
+    return f"/config/app/{_resolve_self_addon_slug()}/{suffix.lstrip('/')}"
+
+
 def _resolve_pairing_ingress_path() -> str:
-    return f"{_HAUSIE_APP_INGRESS_PATH}/pairing"
+    return _resolve_hausie_app_path("ingress/pairing")
 
 
 def _resolve_credentials_ingress_path() -> str:
-    return f"{_HAUSIE_APP_INGRESS_PATH}/credentials"
+    return _resolve_hausie_app_path("ingress/credentials")
 
 
 def _resolve_setup_ingress_path() -> str:
-    return _HAUSIE_APP_INGRESS_PATH
+    return _resolve_hausie_app_path("ingress")
+
+
+def _resolve_hausie_app_info_path() -> str:
+    return _resolve_hausie_app_path("info")
 
 
 def _autodetect_addon_slug(*keywords: str) -> str | None:
@@ -1327,6 +1354,40 @@ def _patch_credentials_shortcut(log) -> None:
         log.ok(f"Credentials shortcut {action} in config dashboard.")
 
 
+def _patch_hausie_app_shortcut(log) -> None:
+    """Keep the persisted Hausie App shortcut aligned with this add-on's slug."""
+    dashboard_path = resolve_config_dashboard_path()
+    if not dashboard_path.exists():
+        return
+    try:
+        doc = yaml.safe_load(dashboard_path.read_text(encoding="utf-8")) or {}
+    except Exception as exc:
+        log.warn(f"Hausie App shortcut patch skipped: {exc}")
+        return
+    if not isinstance(doc, dict):
+        return
+
+    target_path = _resolve_hausie_app_info_path()
+    updated = False
+    for view in doc.get("views") or []:
+        if not isinstance(view, dict) or str(view.get("path") or "").strip() != "main":
+            continue
+        for section in view.get("sections") or []:
+            if not isinstance(section, dict):
+                continue
+            for card in section.get("cards") or []:
+                if not isinstance(card, dict) or str(card.get("name") or "").strip() != "Hausie App":
+                    continue
+                desired_action = {"action": "url", "url_path": target_path}
+                if card.get("tap_action") != desired_action:
+                    card["tap_action"] = desired_action
+                    updated = True
+
+    if updated:
+        dashboard_path.write_text(yaml.safe_dump(doc, sort_keys=False, allow_unicode=True), encoding="utf-8")
+        log.ok(f"Patched Hausie App shortcut to {target_path}.")
+
+
 def _save_ha_credentials(payload: dict[str, Any]) -> dict[str, Any]:
     log = get_logger("credentials")
     requested_token = str(payload.get("ha_token") or payload.get("token") or "").strip()
@@ -1418,6 +1479,7 @@ def _sync_local_config() -> None:
         _ensure_bootstrap_config_dashboard()
         _patch_credentials_shortcut(get_logger("config"))
         _patch_add_device_shortcut(get_logger("config"))
+        _patch_hausie_app_shortcut(get_logger("config"))
         get_logger("config").ok("configuration.yaml synced (local).")
     except Exception as exc:
         get_logger("config").warn(f"configuration.yaml sync failed: {exc}")
@@ -2695,7 +2757,7 @@ def _run_sync_inventory(
             raw = json.loads(Path(ha.raw_file).read_text(encoding="utf-8"))
             labels = ha.fetch_labels()
             device_id = os.getenv("HAUSIE_DEVICE_ID", "").strip() or settings.HAUSIE_DEVICE_ID
-            addon_slug = (os.getenv("HOSTNAME") or os.getenv("HAUSIE_ADDON_SLUG") or "").strip()
+            addon_slug = _resolve_self_addon_slug()
             current_license = _sync_license_state_from_cloud(settings, log, force=True)
             current_plan = _normalize_plan_id(current_license.get("plan"), "") or _resolve_subscription_plan(settings) or ""
             payload = {
@@ -2773,6 +2835,7 @@ def _run_sync_inventory(
             _reload_browser_frontends(ha, log)
             _patch_credentials_shortcut(log)
             _patch_add_device_shortcut(log)
+            _patch_hausie_app_shortcut(log)
             _sync_voice_exposure(ha, response if isinstance(response, dict) else None, log)
             _apply_plan_badge(ha, response.get("plan_badge") if isinstance(response, dict) else None)
             _refresh_license_state_from_cloud(settings, log)
@@ -2861,7 +2924,7 @@ def _run_create_base(
             except Exception:
                 computed_force_full = False
             device_id = os.getenv("HAUSIE_DEVICE_ID", "").strip() or settings.HAUSIE_DEVICE_ID
-            addon_slug = (os.getenv("HOSTNAME") or os.getenv("HAUSIE_ADDON_SLUG") or "").strip()
+            addon_slug = _resolve_self_addon_slug()
             current_license = _sync_license_state_from_cloud(settings, log, force=True)
             current_plan = _normalize_plan_id(current_license.get("plan"), "") or _resolve_subscription_plan(settings) or ""
             payload = {
@@ -2914,6 +2977,7 @@ def _run_create_base(
             log.start("Reloading Home Assistant services.")
             _reload_services(ha, log)
             _patch_add_device_shortcut(log)
+            _patch_hausie_app_shortcut(log)
             _apply_plan_badge(ha, response.get("plan_badge") if isinstance(response, dict) else None)
             _refresh_license_state_from_cloud(settings, log)
             enabled = _turn_on_user_helpers(ha)
@@ -3092,6 +3156,7 @@ def _run_create_test() -> None:
             )
             config.sync_config_dashboard()
         _patch_credentials_shortcut(log)
+        _patch_hausie_app_shortcut(log)
         log.start("Reloading Home Assistant services.")
         _reload_services(ha, log)
         _apply_plan_badge(ha, response.get("plan_badge") if isinstance(response, dict) else None)

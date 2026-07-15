@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.73
+
+- Resolve the installed Hausie app slug from Supervisor and use it for generated app, setup, credentials, and pairing navigation paths.
+
 ## 0.2.72
 
 - Do not block add-on startup while downloading Playwright browsers; install Chromium lazily only when a dashboard UI operation requires it.
