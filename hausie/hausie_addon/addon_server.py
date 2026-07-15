@@ -437,6 +437,7 @@ _CONFIG_DASHBOARD_FILENAME = "hausie_configuration_dashboard.yaml"
 _TEST_DASHBOARD_FILENAME = "hausie_test_dashboard.yaml"
 _MAIN_DASHBOARD_FILENAME = "hausie_dashboard.yaml"
 _BOOTSTRAP_CONFIG_TEMPLATE_PATH = Path(__file__).resolve().parent / "templates" / "UI" / "config_bootstrap_dashboard.yaml"
+_HAUSIE_APP_INGRESS_PATH = "/config/app/5d76f103_hausie/ingress"
 
 _PAIRING_LOCK = threading.Lock()
 _PAIRING_THREAD: threading.Thread | None = None
@@ -1098,38 +1099,15 @@ def _supervisor_request(method: str, path: str) -> dict[str, Any]:
 
 
 def _resolve_pairing_ingress_path() -> str:
-    ingress_base = _resolve_self_ingress_base()
-    if ingress_base:
-        return f"{ingress_base}/pairing"
-    return "/config-dashboard/new-devices"
+    return f"{_HAUSIE_APP_INGRESS_PATH}/pairing"
 
 
 def _resolve_credentials_ingress_path() -> str:
-    ingress_base = _resolve_self_ingress_base()
-    if ingress_base:
-        return f"{ingress_base}/credentials"
-    return "/config/app/5d76f103_hausie/ingress/credentials"
+    return f"{_HAUSIE_APP_INGRESS_PATH}/credentials"
 
 
 def _resolve_setup_ingress_path() -> str:
-    ingress_base = _resolve_self_ingress_base()
-    if ingress_base:
-        return f"{ingress_base}/setup"
-    return "/config/app/5d76f103_hausie/ingress/setup"
-
-
-def _resolve_self_ingress_base() -> str:
-    data = _supervisor_request("GET", "/addons/self/info")
-    body = data.get("data") if isinstance(data.get("data"), dict) else data
-    ingress_base = ""
-    if isinstance(body, dict):
-        ingress_base = str(
-            body.get("ingress_url")
-            or body.get("ingress_entry")
-            or body.get("ingress_path")
-            or ""
-        ).strip()
-    return ingress_base.rstrip("/")
+    return _HAUSIE_APP_INGRESS_PATH
 
 
 def _autodetect_addon_slug(*keywords: str) -> str | None:
@@ -1822,15 +1800,22 @@ def _ha_config_root() -> Path:
 def _ensure_bootstrap_config_dashboard() -> bool:
     """Create a local installer dashboard only when Cloud has not generated one yet."""
     target = _ha_config_root() / "dashboards" / _CONFIG_DASHBOARD_FILENAME
-    if target.exists():
-        return False
+    created = not target.exists()
     if not _BOOTSTRAP_CONFIG_TEMPLATE_PATH.exists():
         raise FileNotFoundError(f"Bootstrap dashboard template not found: {_BOOTSTRAP_CONFIG_TEMPLATE_PATH}")
     content = _BOOTSTRAP_CONFIG_TEMPLATE_PATH.read_text(encoding="utf-8")
     content = content.replace("__HAUSIE_SETUP_URL__", _resolve_setup_ingress_path())
+    if target.exists():
+        try:
+            existing = target.read_text(encoding="utf-8")
+        except Exception:
+            return False
+        # Only refresh our temporary installer dashboard; never overwrite Cloud output.
+        if "Complete Hausie setup" not in existing or existing == content:
+            return False
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(content, encoding="utf-8")
-    get_logger("config").ok("Created local Hausie setup dashboard.")
+    get_logger("config").ok("Created local Hausie setup dashboard." if created else "Refreshed local Hausie setup dashboard.")
     return True
 
 

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.71
+
+- Use stable Home Assistant app ingress routes in persistent dashboards instead of expiring Supervisor ingress tokens.
+- Refresh the temporary setup dashboard URL during startup when it has not yet been replaced by the Cloud-generated configuration dashboard.
+
 ## 0.2.70
 
 - Remove runtime credentials, pairing, Cloud endpoint, and Tailscale fields from the add-on configuration screen; setup and credentials ingress flows now manage those values.
