@@ -1165,16 +1165,6 @@ def _supervisor_request(
     return payload if isinstance(payload, dict) else {}
 
 
-def _reset_local_ha_password(username: str, password: str) -> None:
-    """Change a Home Assistant password without replacing the user account."""
-    _supervisor_request(
-        "POST",
-        "/auth/reset",
-        {"username": username, "password": password},
-        raise_on_error=True,
-    )
-
-
 def _resolve_self_addon_slug() -> str:
     """Return the Supervisor-assigned slug for this installed add-on."""
     global _SELF_ADDON_SLUG
@@ -1527,7 +1517,7 @@ def _save_ha_credentials(payload: dict[str, Any]) -> dict[str, Any]:
         if requested_admin_password:
             admin_user = users_by_username.get(HAUSIE_ADMIN_USERNAME)
             if admin_user:
-                _reset_local_ha_password(HAUSIE_ADMIN_USERNAME, requested_admin_password)
+                ha.change_auth_user_password(admin_user.get("id"), requested_admin_password)
                 log.ok(f"Administrator password updated: {HAUSIE_ADMIN_USERNAME}")
             else:
                 ha.create_auth_user(
@@ -1548,7 +1538,7 @@ def _save_ha_credentials(payload: dict[str, Any]) -> dict[str, Any]:
                     raise RuntimeError(
                         f"Existing support account '{HAUSIE_SUPPORT_USERNAME}' is not an administrator."
                     )
-                _reset_local_ha_password(HAUSIE_SUPPORT_USERNAME, support_password_to_use)
+                ha.change_auth_user_password(support_user.get("id"), support_password_to_use)
                 log.ok(f"Support user password updated: {HAUSIE_SUPPORT_USERNAME}")
             else:
                 ha.create_auth_user(

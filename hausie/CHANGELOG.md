@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.82
+
+- Change existing Hausie account passwords through Home Assistant's administrator WebSocket API using stable user IDs.
+- Remove the dedicated Supervisor Auth API permission because password rotation no longer calls the role-restricted `/auth/reset` endpoint.
+- Keep the add-on on the narrower `manager` Supervisor role while preserving users, owner status, permissions, and account relationships.
+
 ## 0.2.81
 
 - Grant the add-on the dedicated Home Assistant authentication permission required to update existing local account passwords.

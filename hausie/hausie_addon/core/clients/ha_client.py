@@ -336,6 +336,21 @@ class HAClient:
             "credential": credential if isinstance(credential, dict) else {},
         }
 
+    def change_auth_user_password(self, user_id: str, password: str) -> None:
+        """Change an existing user's password through Home Assistant's admin API."""
+        normalized_user_id = str(user_id or "").strip()
+        if not normalized_user_id:
+            raise ValueError("Home Assistant user_id is required.")
+        if not password:
+            raise ValueError("Home Assistant password is required.")
+        self._auth_ws_call(
+            "config/auth_provider/homeassistant/admin_change_password",
+            {
+                "user_id": normalized_user_id,
+                "password": password,
+            },
+        )
+
     def delete_auth_user_by_username(self, username: str) -> bool:
         """Delete a Home Assistant auth user by username."""
         target = username.strip().lower()

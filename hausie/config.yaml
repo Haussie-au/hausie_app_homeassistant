@@ -1,6 +1,6 @@
 name: Hausie App
 slug: hausie
-version: "0.2.81"
+version: "0.2.82"
 description: Hausie add-on for Home Assistant OS
 arch:
   - aarch64
@@ -11,7 +11,6 @@ boot: auto
 homeassistant_api: true
 hassio_api: true
 hassio_role: manager
-auth_api: true
 host_network: false
 ingress: true
 ingress_port: 8000

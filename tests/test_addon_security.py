@@ -25,12 +25,13 @@ def _headers(**values: str) -> Message:
 
 
 class AddonManifestSecurityTests(unittest.TestCase):
-    def test_auth_api_is_enabled_without_host_port_mapping(self) -> None:
+    def test_sensitive_supervisor_permissions_are_not_enabled(self) -> None:
         manifest_path = Path(__file__).resolve().parents[1] / "hausie" / "config.yaml"
         manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
 
         self.assertTrue(manifest["ingress"])
-        self.assertTrue(manifest["auth_api"])
+        self.assertEqual(manifest["hassio_role"], "manager")
+        self.assertNotIn("auth_api", manifest)
         self.assertNotIn("ports", manifest)
 
 
