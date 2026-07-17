@@ -1486,6 +1486,7 @@ def _save_ha_credentials(payload: dict[str, Any]) -> dict[str, Any]:
     requested_token = str(payload.get("ha_token") or payload.get("token") or "").strip()
     requested_support_password = str(payload.get("support_password") or payload.get("ha_ui_password") or "").strip()
     requested_admin_password = str(payload.get("admin_password") or "").strip()
+    users_already_provisioned = payload.get("users_already_provisioned") is True
     current_token, _current_username, current_password = resolve_ha_runtime_credentials()
     state = load_device_state()
     admin_password_configured = bool(state.get("hausie_admin_password_configured"))
@@ -1515,7 +1516,21 @@ def _save_ha_credentials(payload: dict[str, Any]) -> dict[str, Any]:
             if isinstance(user, dict)
         }
 
-        if requested_admin_password:
+        if users_already_provisioned:
+            admin_user = users_by_username.get(HAUSIE_ADMIN_USERNAME)
+            support_user = users_by_username.get(HAUSIE_SUPPORT_USERNAME)
+            if not admin_user:
+                raise RuntimeError(f"Hausie administrator '{HAUSIE_ADMIN_USERNAME}' does not exist.")
+            if not support_user:
+                raise RuntimeError(f"Hausie support account '{HAUSIE_SUPPORT_USERNAME}' does not exist.")
+            if not support_user.get("isAdmin"):
+                raise RuntimeError(
+                    f"Existing support account '{HAUSIE_SUPPORT_USERNAME}' is not an administrator."
+                )
+            state["hausie_admin_password_configured"] = True
+            save_device_state(state)
+            log.ok("Verified existing Hausie administrator and support users.")
+        elif requested_admin_password:
             admin_user = users_by_username.get(HAUSIE_ADMIN_USERNAME)
             if admin_user:
                 ha.change_auth_user_password(admin_user.get("id"), requested_admin_password)
@@ -1532,7 +1547,7 @@ def _save_ha_credentials(payload: dict[str, Any]) -> dict[str, Any]:
             state["hausie_admin_password_configured"] = True
             save_device_state(state)
 
-        if requested_support_password:
+        if requested_support_password and not users_already_provisioned:
             support_user = users_by_username.get(HAUSIE_SUPPORT_USERNAME)
             if support_user:
                 if not support_user.get("isAdmin"):
@@ -1551,7 +1566,7 @@ def _save_ha_credentials(payload: dict[str, Any]) -> dict[str, Any]:
                 )
                 log.ok(f"Support user created: {HAUSIE_SUPPORT_USERNAME}")
 
-        if requested_admin_password or requested_support_password:
+        if not users_already_provisioned and (requested_admin_password or requested_support_password):
             try:
                 _supervisor_request("DELETE", "/auth/cache", raise_on_error=True)
             except Exception as exc:

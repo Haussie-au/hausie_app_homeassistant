@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.86
+
+- Allow the local installer to save credentials for users it has already provisioned without attempting a second password reset.
+- Verify the existing Hausie administrator and support accounts before accepting installer-provided credentials.
+
 ## 0.2.85
 
 - Report installed Browser Mod and Button Card versions with every heartbeat.

@@ -12,6 +12,55 @@ from hausie_addon.core.clients.ha_client import HAClient  # noqa: E402
 
 
 class CredentialPasswordResetTests(unittest.TestCase):
+    def test_installer_can_persist_credentials_without_resetting_users_again(self) -> None:
+        ha = Mock()
+        ha.fetch_users.return_value = [
+            {"id": "admin-user-id", "username": "hausie_admin", "isOwner": True, "isAdmin": True},
+            {"id": "support-user-id", "username": "hausie_support_user", "isOwner": False, "isAdmin": True},
+        ]
+        state = {}
+        validation = {"credentials_valid": True, "validation_error": ""}
+
+        with (
+            patch.object(
+                addon_server,
+                "resolve_ha_runtime_credentials",
+                return_value=("", "hausie_support_user", ""),
+            ),
+            patch.object(addon_server, "load_device_state", return_value=state),
+            patch.object(addon_server, "save_device_state") as save_state,
+            patch.object(addon_server, "_resolve_ha_client", return_value=ha),
+            patch.object(addon_server, "_supervisor_request") as supervisor_request,
+            patch.object(addon_server, "persist_ha_runtime_credentials") as persist_credentials,
+            patch.object(addon_server, "_validate_ha_credentials", return_value=validation),
+            patch.object(addon_server, "_sync_local_config"),
+            patch.object(addon_server, "_MQTT_LISTENER", object()),
+            patch.object(addon_server, "_SUPPORT_MANAGER", object()),
+            patch.object(addon_server, "_HEARTBEAT", object()),
+            patch.object(addon_server, "_start_license_monitor"),
+            patch.object(addon_server, "_start_inventory_monitor"),
+        ):
+            result = addon_server._save_ha_credentials(
+                {
+                    "ha_token": "new-token",
+                    "admin_password": "new-admin-password",
+                    "support_password": "new-support-password",
+                    "users_already_provisioned": True,
+                }
+            )
+
+        self.assertEqual(result, validation)
+        ha.change_auth_user_password.assert_not_called()
+        ha.create_auth_user.assert_not_called()
+        supervisor_request.assert_not_called()
+        self.assertTrue(state["hausie_admin_password_configured"])
+        save_state.assert_called_once_with(state)
+        persist_credentials.assert_called_once_with(
+            ha_token="new-token",
+            ha_ui_username="hausie_support_user",
+            ha_ui_password="new-support-password",
+        )
+
     def test_password_change_uses_home_assistant_admin_websocket_command(self) -> None:
         ha = HAClient.__new__(HAClient)
         ha._auth_ws_call = Mock()
